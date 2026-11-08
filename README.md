@@ -1,10 +1,12 @@
 # GLW8 Heizungsregler für einen gemischten Heizkreis – Version 2 (ESP32)
 
-**Firmware-Version 2.6.0** · Arduino IDE · ESP32-WROOM-32E 4-Kanal-Relaisplatine
+**Firmware-Version 2.21.4** · Arduino IDE · ESP32-WROOM-32E 4-Kanal-Relaisplatine
 
 © 2026 [erich.grassl@glw8.at](mailto:erich.grassl@glw8.at)
 
 Witterungsgeführter Regler für einen gemischten Heizkreis. Aus der Außentemperatur wird über eine Heizkurve der Vorlauf-Sollwert berechnet. Ein PI-Regler verstellt das Mischerventil so, dass die Vorlauftemperatur diesem Sollwert folgt.
+
+**Bezeichnungen (ab 2.13.0):** Vorlauf und Rücklauf stehen nie ohne Bezug. **Regelkreis Vorlauf / Rücklauf** (kurz Regelkreis VL / RL) sind die Fühler des gemischten Kreises hinter dem Mischer, den der Regler regelt (Pumpe K3). **Heizung Vorlauf / Rücklauf** (kurz Heizung VL / RL) sind die Fühler im **Heizkreis** zwischen Wärmequelle und Puffer. *Vorlauf-Soll* gibt es nur im Regelkreis.
 
 Bedient wird der Regler über eine integrierte Weboberfläche, über **MQTT** mit automatischer Einbindung in **Home Assistant** sowie über **Modbus TCP** und **Modbus RTU**. Updates gehen ohne Kabel über den Browser oder direkt aus der Arduino IDE.
 
@@ -29,6 +31,7 @@ Bedient wird der Regler über eine integrierte Weboberfläche, über **MQTT** mi
 13. [Mischer und Regler](#mischer-und-regler)
 14. [Relais K4 (Zusatzfunktion)](#relais-k4-zusatzfunktion)
 15. [Schutzfunktionen und Störungen](#schutzfunktionen-und-störungen)
+    - [Status-LED und Taster IO0](#status-led-und-taster-io0)
 16. [Temperaturverlauf](#temperaturverlauf)
 17. [MQTT](#mqtt)
 18. [Home Assistant](#home-assistant)
@@ -45,12 +48,12 @@ Bedient wird der Regler über eine integrierte Weboberfläche, über **MQTT** mi
 ## Funktionen
 
 **Regelung**
-- Heizkurve aus der gedämpften Außentemperatur: wahlweise **Formel** mit Neigung und Niveau oder **4 frei einstellbare Stützpunkte** mit glattem, monotonem Spline; Vorlauf min/max; in der Grafik per Ziehen einstellbar; Export als CSV-Liste
+- Heizkurve aus der gedämpften Außentemperatur: wahlweise **Formel** mit Neigung und Niveau oder **4 frei einstellbare Stützpunkte** mit glattem, monotonem Spline; Regelkreis Vorlauf min/max; in der Grafik per Ziehen einstellbar; Export als CSV-Liste
 - PI-Regler für **3-Punkt-Stellantriebe** (Auf/Zu-Impulse) oder **0–10-V-Antriebe** (PWM + Wandler)
 - Mischerstellung aus der Motorlaufzeit geschätzt; nach jedem Start fährt der Mischer zur Kalibrierung ganz zu
 - Zähler für Mischer-Stellvorgänge (gesamt, AUF, ZU), Pumpenlaufzeit und Pumpenstarts – seit Neustart und als Gesamtzähler über alle Neustarts (im Flash gespeichert)
 - Neustart-Zähler mit Neustartgrund (Einschalten, Software, Absturz/Watchdog, Reset-Taste)
-- Betriebsarten Aus, Automatik, **Raumtemperatur** (Vorlauf nur nach dem Raum über einen PI-Raumregler), Fester Sollwert, Handbetrieb, **Kühlen** und **Heizen/Kühlen automatisch**
+- Betriebsarten Aus, Automatik, **Raumtemperatur** (Regelkreis-Vorlauf nur nach dem Raum über einen PI-Raumregler), Fester Sollwert, Handbetrieb, **Kühlen** und **Heizen/Kühlen automatisch**
 - Kühlen über den Mischer (Kaltwasser von der Wärmepumpe): Kühlkurve, Raumaufschaltung, **Taupunktschutz** mit Raumfeuchte über MQTT oder Modbus
 - Zwei Parameterprofile: Radiatorheizung (~50 °C) und Fußbodenheizung (~26–31 °C), dazu das eigene Profil **GLW8**, das die aktuellen Werte speichert und wieder lädt
 
@@ -59,12 +62,13 @@ Bedient wird der Regler über eine integrierte Weboberfläche, über **MQTT** mi
 - Raumaufschaltung und Raumabschaltung mit optionalem Raumfühler, schaltbar
 - Rücklaufbegrenzung, Heizgrenze (Sommerbetrieb), Frostschutz, Übertemperaturschutz
 - Pumpen-Blockierschutz (180 s Lauf nach 24 h Stillstand)
-- **Relais K4** mit wählbarer Funktion: Wärmeanforderung an Kessel/Wärmepumpe, Umschaltung Heizen/Kühlen, Sammelstörmeldung (Ruhestrom), Zirkulationspumpe, Entfeuchter oder frei schaltbar
+- **Relais K4** mit wählbarer Funktion: Wärmeanforderung an Wärmeerzeuger, Umschaltung Heizen/Kühlen, Sammelstörmeldung (Ruhestrom), Zirkulationspumpe, Entfeuchter oder frei schaltbar
 
 **Fühler**
-- Vier DS18B20 – Vorlauf, Rücklauf, Außen, optional Raum – wahlweise **jeder an einem eigenen Pin** oder **alle an einem gemeinsamen Bus** (Einstellung im Web)
+- Acht DS18B20 – Regelkreis Vorlauf, Regelkreis Rücklauf, Außen, optional Raum, **Puffer**, **Heizung Vorlauf** und **Heizung Rücklauf** (Kreis zwischen Wärmequelle und Puffer) sowie **Wärmequelle** (ab 2.16.0) – an **drei 1-Wire-Bussen** (GPIO 4, 13, 14), an jedem beliebig viele; Bus und Seriennummer je Fühler (Einstellung im Web)
+- **Wärmemengenzählung** für zwei Kreise: Regelkreis (hinter dem Mischer) und Heizkreis (Wärmequelle → Puffer) – Leistung, Tages- und Gesamtmenge
 - Jeder Wert alternativ über MQTT (beliebiges Topic, Zahl oder JSON) oder Modbus, auch als automatischer Ersatz bei Fühlerausfall
-- Außen und Raum auch von **Bluetooth-Sensoren**: RuuviTag (auch Pro) und **Shelly BLU H&T** (BTHome, auch verschlüsselt) – direkt empfangen, ohne Gateway
+- Jeder Fühler auch von **Bluetooth-Sensoren**: RuuviTag (auch Pro) und **Shelly BLU H&T** (BTHome, auch verschlüsselt) – direkt empfangen, ohne Gateway
 
 **Bedienung und Anbindung**
 - Weboberfläche mit Live-Werten, Heizkurvengrafik, Verlauf (1 h bis 24 h) mit CSV-Download und Ereignisprotokoll
@@ -83,11 +87,16 @@ Bedient wird der Regler über eine integrierte Weboberfläche, über **MQTT** mi
 |---|---|
 | ESP32-WROOM-32E 4-Kanal-Relaisplatine | 4 Relais (SRD-05VDC-SL-C) an GPIO 32/33/25/26, Status-LED GPIO 23, Taster IO0 und EN; Versorgung 5 V DC, 7–30 V DC oder 230-V-Variante; **kein USB** auf der Platine ([Beschreibung](https://prilchen.de/esp32-4-kanal-relais-entwicklungsplatine/)) |
 | USB-Seriell-Adapter (3,3-V-Logik) | nur für das erste Aufspielen (GND, RX, TX, 5 V) |
-| 3 × DS18B20, wasserdicht | Vorlauf, Rücklauf, Außen |
+| 3 × DS18B20, wasserdicht | Regelkreis-Vorlauf, Regelkreis-Rücklauf, Außen |
+| 1 × DS18B20, wasserdicht (optional) | Pufferfühler: Tauchhülse oder als Anlegefühler am Puffervorlauf (vor dem Mischer) – oder der Wert über MQTT/Modbus |
+| 2 × DS18B20, wasserdicht (optional) | Heizung Vorlauf und Heizung Rücklauf: Anlegefühler an den Leitungen zwischen Wärmequelle und Puffer – für die Leistung der Wärmequelle |
+| 1 × DS18B20, wasserdicht (optional) | Wärmequelle: Tauchhülse oder Anlegefühler am Ausgang der Wärmequelle – für die Puffer-Ladepumpe (K4) |
 | 1 × DS18B20 (optional) | Raumfühler im Referenzraum – oder ein Raumthermometer über MQTT (z. B. Zigbee) |
-| 4,7 kΩ | Pull-up von DATA nach 3,3 V: einer je Fühler (eigene Pins) bzw. einer für alle (gemeinsamer Bus) |
+| Bluetooth-Thermometer (optional) | statt oder zusätzlich zu einem DS18B20 für jeden Fühler (sinnvoll vor allem für Außen und Raum): **RuuviTag** (auch Pro) oder **Shelly BLU H&T** (SBHT-003C); liefern auch die Raumfeuchte (siehe [Bluetooth-Sensoren](#bluetooth-sensoren-ruuvitag-shelly-blu-ht)) |
+| 3 × 4,7 kΩ | Pull-up von DATA nach 3,3 V, einer je Bus – am Regler, nicht am Fühler |
 | PWM→0–10-V-Wandler (optional) | nur bei 0–10-V-Stellantrieb |
 | RS485-Modul MAX485, 3,3 V (optional) | nur für Modbus RTU |
+| Schütz / Koppelrelais (optional) | an Relais K4 für größere Lasten (Zirkulationspumpe, Entfeuchter); potenzialfreie Eingänge von Wärmeerzeuger direkt an COM/NO (siehe [Relais K4](#relais-k4-zusatzfunktion)) |
 | Netzteil 12 oder 24 V DC | an den Eingang 7–30 V der Platine (oder die 230-V-Variante der Platine) |
 
 ### Pinbelegung
@@ -98,11 +107,13 @@ Bedient wird der Regler über eine integrierte Weboberfläche, über **MQTT** mi
 | 33 (Relais K2) | Mischer **ZU** – fest auf der Platine |
 | 25 (Relais K3) | **Heizkreispumpe** – fest auf der Platine |
 | 26 (Relais K4) | **Zusatzfunktion**, wählbar (Werkseinstellung Wärmeanforderung), Wechsler COM/NO/NC – siehe [Relais K4](#relais-k4-zusatzfunktion) |
-| 23 | Status-LED auf der Platine (in 2.0.0 noch ohne Funktion) |
-| 4 | DS18B20 **Vorlauf** – bei gemeinsamem Bus: **alle** DS18B20 |
-| 13 | DS18B20 **Rücklauf** (nur bei eigenen Pins) |
-| 14 | DS18B20 **Außen** (nur bei eigenen Pins) |
-| 27 | DS18B20 **Raum**, optional (nur bei eigenen Pins) |
+| 23 | Status-LED auf der Platine – Blinkmuster für Betrieb, WLAN, Update, Störung (ab 2.9.0, siehe [Status-LED und Taster IO0](#status-led-und-taster-io0)) |
+| 0 | Taster IO0 („BOOT“) auf der Platine: 13 s = Access-Point ohne Passwort, 37 s = Werkseinstellungen (ab 2.9.0) |
+| 4 | 1-Wire-**Bus 1** für DS18B20 (bis 2.9: Regelkreis-Vorlauf bzw. gemeinsamer Bus) |
+| 13 | 1-Wire-**Bus 2** für DS18B20 (bis 2.9: Regelkreis-Rücklauf) |
+| 14 | 1-Wire-**Bus 3** für DS18B20 (bis 2.9: Außen) |
+| 27 | ab 2.20.0 **Eingang Warmwasser-Ventil** (optional): potentialfreier Kontakt bzw. Optokoppler gegen GND, Pull-up 4,7 kΩ nach 3,3 V am Regler (zusätzlich der interne) – siehe [Warmwasser-Erkennung](#warmwasser-erkennung) |
+| 22, 21, 5 | seit 2.10.0 frei (bis 2.9: Puffer, Heizung Vorlauf, Heizung Rücklauf; GPIO 27 bis 2.9: Raum) |
 | 19 | PWM 1 kHz, 10 Bit für den 0–10-V-Wandler (optional) |
 | 16 (UART2 RX) | RS485 RO – Empfang (nur bei Modbus RTU) |
 | 17 (UART2 TX) | RS485 DI – Senden (nur bei Modbus RTU) |
@@ -113,15 +124,16 @@ Die Pins sind oben in `Heizungsregler_ESP32.ino` definiert (`PIN_…`). **Vor de
 
 ### Hinweise zur Verdrahtung
 
-- **Fühler:** Die Anschlussart wählst du im Reiter *Fühler*, siehe [Temperaturfühler](#temperaturfühler).
-  - **Eigene Pins:** Jeder DS18B20 braucht einen eigenen **4,7-kΩ-Pull-up** von DATA nach 3,3 V.
-  - **Gemeinsamer Bus:** Alle DS18B20 hängen parallel an GPIO 4 (DATA, 3,3 V, GND), mit **einem** 4,7-kΩ-Pull-up. Bei langen Leitungen (mehr als ca. 20 m gesamt) eher 2,2–3,3 kΩ verwenden.
+- **Fühler:** drei 1-Wire-Busse an GPIO 4, 13 und 14; an jeden Bus beliebig viele DS18B20 parallel (DATA, 3,3 V, GND). Welcher Fühler welcher ist, stellst du im Reiter *Fühler* ein, siehe [Temperaturfühler](#temperaturfühler).
+  - **Lage des Pull-up-Widerstands:** Der Pull-up gehört bei einem längeren Kabel (z. B. 7 m UTP) **immer an das Ende beim Mikrocontroller** (ESP32, Arduino, Raspberry Pi …) – also an die Klemme am Regler – und **nicht an den Sensor**. Dort zieht er die Leitung nach jedem Bit wieder auf 3,3 V, wo der ESP32 misst; am Sensor angebracht müsste der Pegel erst über das ganze Kabel zurück (Leitungskapazität, Reflexionen) – das führt bei langen Leitungen zu Lesefehlern (85 °C / −127 °C). Bei UTP für DATA und GND ein verdrilltes Paar verwenden, 3,3 V auf ein weiteres.
+  - **Je Bus ein 4,7-kΩ-Pull-up** von DATA nach 3,3 V. Bei langen Leitungen (mehr als ca. 20 m an einem Bus) eher 2,2–3,3 kΩ verwenden.
+  - **Aufteilen:** z. B. Bus 1 die Fühler am Puffer/Mischer, Bus 2 die Leitungen zur Wärmequelle, Bus 3 Außen und Raum. Ein Kurzschluss an einem Bus legt nur dessen Fühler lahm.
   - Die Fühler werden mit 3,3 V versorgt, nicht mit 5 V.
-- **Mischer-Verriegelung:** Die Software schaltet AUF und ZU nie gleichzeitig und hält beim Richtungswechsel 300 ms Pause. Zusätzlich gehört eine **Hardware-Verriegelung** dazu: Phase über COM von K1; NO von K1 → Motor AUF; NC von K1 → COM von K2; NO von K2 → Motor ZU. So liegen nie beide Richtungen gleichzeitig am Motor. Das setzt voraus, dass die Platine COM, NO und NC jedes Relais herausführt.
+- **Mischer-Verriegelung:** Die Software schaltet AUF und ZU nie gleichzeitig und hält beim Richtungswechsel 300 ms Pause. Zusätzlich gehört eine **Hardware-Verriegelung** dazu: zwei Wechsler in Reihe – Phase über COM von **K2 (ZU)**; NO von K2 → Motor ZU; NC von K2 → COM von **K1 (AUF)**; NO von K1 → Motor AUF; NC von K1 bleibt frei. AUF bekommt nur Spannung, solange ZU abgefallen ist – so liegen nie beide Richtungen gleichzeitig am Motor, und ZU hat Vorrang (auch bei einem klebenden Relais K1 fährt der Mischer noch zu). Das setzt voraus, dass die Platine COM, NO und NC jedes Relais herausführt.
 - **230 V:** Die Relais sind für 10 A bei 250 V~ ausgelegt; bei preiswerten Platinen sind die Abstände zwischen Netz- und Kleinspannung aber oft knapp. Netzleitungen und Fühlerleitungen getrennt führen, Entstörglied (RC-Glied oder Varistor) am Stellantrieb vorsehen. Arbeiten an 230 V nur durch eine Elektrofachkraft.
 - **Relaislogik:** Die Relais der Platine schalten bei HIGH. *Regler → Relais Low-aktiv* bleibt deshalb **aus**.
 - **0–10 V:** GPIO 19 liefert ein PWM-Signal 0–3,3 V mit 1 kHz. Ein handelsübliches PWM→0–10-V-Modul macht daraus das Stellsignal.
-- **Stromlaufplan:** Der Stromlaufplan aus Version 1 gilt für den Wemos D1 mini. Ein Plan für die ESP32-Platine folgt mit der Dokumentation von Version 2.
+- **Stromlaufplan:** `Stromlaufplan_V2.svg` im Sketch-Ordner (auch als Anhang B der Dokumentation im Ordner `Doku/`): ESP32-Relaisplatine mit K1–K4, fünf DS18B20, Netzteil 12/24 V=, optionale Teile (0–10 V, MAX485), Laststromkreis mit Mischer, Pumpe, STB und K4 potenzialfrei an X1.
 
 ---
 
@@ -143,7 +155,7 @@ Die Pins sind oben in `Heizungsregler_ESP32.ino` definiert (`PIN_…`). **Vor de
      | NimBLE-Arduino | h2zero | 1.4.x oder ≥ 2.0 (Bluetooth-Empfang von RuuviTag und Shelly BLU H&T; die Version wird beim Übersetzen erkannt) |
 
      WebServer, Update, LittleFS, ESPmDNS, ArduinoOTA und Ticker gehören zum ESP32-Core.
-   - Den **ganzen Ordner** `Heizungsregler_ESP32` in den Sketchbook-Ordner legen: alle `.ino`-Dateien, `web_ui.h` und den Unterordner `src/GlwOta`. Ordnername und Name der Hauptdatei `Heizungsregler_ESP32.ino` müssen gleich sein. Die Arduino IDE öffnet beim Laden der Hauptdatei alle übrigen `.ino`-Dateien als Reiter (siehe [Aufbau des Quelltexts](#aufbau-des-quelltexts)).
+   - Den **ganzen Ordner** `Heizungsregler_ESP32` in den Sketchbook-Ordner legen: alle `.ino`-Dateien, `web_ui.h`, `web_ui_gz.h` und den Unterordner `src/GlwOta`. Ordnername und Name der Hauptdatei `Heizungsregler_ESP32.ino` müssen gleich sein. Die Arduino IDE öffnet beim Laden der Hauptdatei alle übrigen `.ino`-Dateien als Reiter (siehe [Aufbau des Quelltexts](#aufbau-des-quelltexts)).
    - **Umstieg von einer Version vor 2.4.0:** Die alte Datei `Heizungsregler_ESP32.ino` durch den neuen Ordnerinhalt ersetzen. Bleibt eine alte, einteilige `.ino`-Datei mit anderem Namen im Ordner liegen, meldet die IDE doppelte Definitionen.
    - *Werkzeuge:* Board **ESP32 Dev Module**, Partition Scheme **Minimal SPIFFS (1.9MB APP with OTA/190KB SPIFFS)**, Flash Size 4MB, CPU Frequency 240 MHz. Mit dem Standard-Schema (1,2 MB je Programmbereich) wird es für Updates über WLAN knapp.
 2. **Erstes Hochladen über den USB-Seriell-Adapter:** Die Platine hat keinen USB-Anschluss.
@@ -154,10 +166,29 @@ Die Pins sind oben in `Heizungsregler_ESP32.ino` definiert (`PIN_…`). **Vor de
 3. **Mit dem Access-Point verbinden:** Beim ersten Start öffnet der Regler den Access-Point **`Heizungsregler-xxxxxx`** mit dem Passwort `heizung123`. Im Browser `http://192.168.4.1` aufrufen.
 4. **WLAN eintragen:** Unter *Netzwerk* das WLAN eintragen und speichern. Der Regler startet neu und ist dann unter `http://heizungsregler.local` oder seiner IP-Adresse erreichbar. Wer von Version 1 umsteigt, kann stattdessen die Einstellungen aus Version 1 laden (nächster Abschnitt).
 5. **Profil laden:** Unter *Heizkurve* das passende **Heizungsprofil** laden, Radiator- oder Fußbodenheizung.
-6. **Fühler einrichten:** Unter *Fühler* die **Anschlussart** wählen (eigene Pins oder gemeinsamer Bus) und kontrollieren, ob alle DS18B20 gefunden wurden. Beim gemeinsamen Bus die Fühler den Rollen zuordnen.
+6. **Fühler einrichten:** Unter *Fühler* in der Liste **DS18B20 an den Bussen** kontrollieren, ob alle DS18B20 gefunden wurden, und jedem seinen Fühler zuordnen (Fühler kurz in der Hand erwärmen, um ihn zu erkennen).
 7. **Motorlaufzeit eintragen:** Unter *Regler* die Laufzeit des Stellantriebs eintragen. Sie steht auf dem Typenschild, oft 120 s oder 140 s, und ist für die Stellungsschätzung entscheidend.
 8. **Web-Passwort setzen:** Unter *Netzwerk* ein Web-Passwort vergeben, der Benutzer ist `admin`. Es schützt Einstellungen, Bedienung und Firmware-Updates. Das Anlagenschema bleibt als Nur-Anzeige ohne Passwort sichtbar (siehe [Weboberfläche](#weboberfläche)).
-9. **Optional:** Zeitprogramm, MQTT, Home Assistant und Modbus einrichten.
+9. **Optional:** feste IP-Adresse, NTP-Server, Zeitprogramm, MQTT, Home Assistant und Modbus einrichten (siehe [IP-Adresse und Uhrzeit](#ip-adresse-und-uhrzeit)).
+
+### IP-Adresse und Uhrzeit
+
+Seit 2.11.0 im Reiter *Netzwerk*:
+
+| Einstellung | Bedeutung |
+|---|---|
+| **Feste IP-Adresse** | aus (Werkseinstellung) = Adresse vom Router per DHCP. Ein = fest eingestellt, dann erscheinen die Felder darunter |
+| IP-Adresse, Subnetzmaske, Gateway | z. B. `192.168.1.50`, `255.255.255.0`, `192.168.1.1`. Die Adresse **außerhalb des DHCP-Bereichs** des Routers wählen, sonst kann sie doppelt vergeben werden |
+| DNS-Server, DNS-Server 2 | leer = Gateway bzw. keiner (DNS braucht der Regler für MQTT-Broker mit Namen und NTP-Server mit Namen) |
+| **NTP-Server (Uhrzeit)** | Werkseinstellung `pool.ntp.org`; z. B. die Adresse des Routers, wenn dieser einen Zeitserver anbietet (Fritz!Box, viele andere). Zusätzlich fragt der Regler immer `time.google.com`. Ab 2.18.3 löst der Regler die Namen selbst auf (beim Verbinden, nach Änderung und alle 12 h) und gibt dem Zeitdienst nur die IP-Adressen; die Anzeige der Zeitquelle nennt die Adresse („synchron (NTP pool.ntp.org = 1.2.3.4)“). Grund: Absturz im ESP32-Paket 3.3.x, siehe [Abstürze](#abstürze-und-speicher-eingrenzen) |
+| **Uhrzeit vom Browser übernehmen** | ein (Werkseinstellung): Hat der Regler keine NTP-Zeit, stellt die Weboberfläche beim Öffnen seine Uhr nach der Uhr des Browsers (nur angemeldet; alle 10 min aufgefrischt, wenn sie mehr als 30 s abweicht). Kommt später NTP dazu, gilt NTP |
+
+- Änderungen an der IP-Adresse lösen einen Neustart aus; der NTP-Server wirkt sofort.
+- Unvollständige Angaben (Adresse, Maske oder Gateway fehlt oder ungültig) – dann bleibt es bei DHCP; ungültige Eingaben werden gar nicht übernommen.
+- **Nicht mehr erreichbar** nach einer falschen Adresse: Taster IO0 13 s halten, mit dem offenen Access-Point verbinden, `http://192.168.4.1` öffnen und korrigieren (siehe [Status-LED und Taster IO0](#status-led-und-taster-io0)).
+- Alternative ohne Einstellung am Regler: im Router eine **DHCP-Reservierung** für die MAC-Adresse des Reglers anlegen.
+
+**Wie der Regler ohne Uhrzeit arbeitet:** Regelung, Schutzfunktionen, Pumpe, K4 (außer Zirkulation), Fühler, MQTT, Modbus und die Wärmemenge laufen normal. Es fehlen: die **Absenkung** (der Regler heizt durchgehend auf den normalen Raumsollwert – lieber warm als kalt), die Feiertage, die **Zirkulationspumpe** an K4 (bleibt aus), der Tageswechsel der Wärmemenge („heute“ zählt weiter, „gestern“ bleibt stehen), der Wochenverlauf und die Zeitstempel. Der ESP32 hat keine batteriegepufferte Uhr – nach jedem Neustart ist die Uhrzeit unbekannt, bis NTP antwortet oder die Weboberfläche geöffnet wird. Die Übersicht zeigt „Uhrzeit vom Browser (kein NTP)“, solange die Uhrzeit vom Browser stammt.
 
 ### Einstellungen aus Version 1 übernehmen
 
@@ -176,15 +207,17 @@ Mit *Einstellungen herunterladen* sicherst du die Einstellungen von Version 2 je
 
 Erreichbar unter `http://heizungsregler.local` oder der IP-Adresse. Die Seite funktioniert auch ohne Internet, etwa im Access-Point-Modus. Sie folgt automatisch dem Hell- oder Dunkelmodus des Geräts und ist für Smartphones angepasst.
 
-**Gestaltung:** ruhige Flächen in Grau und Weiß, Orange für Wärme und alles, was man auslösen kann, Blau für Rücklauf und Istwerte. Messwerte stehen in großer, gut lesbarer Schrift mit Dezimalkomma. Die Reiterleiste bleibt beim Scrollen oben stehen, der aktive Reiter ist unterstrichen. Mit der Tastatur bedienbare Elemente zeigen einen deutlichen Fokusrahmen.
+**Gestaltung:** ruhige Flächen in Grau und Weiß, Orange für Wärme und alles, was man auslösen kann, Blau für Regelkreis-Rücklauf und Istwerte. Messwerte stehen in großer, gut lesbarer Schrift mit Dezimalkomma. Die Reiterleiste bleibt beim Scrollen oben stehen, der aktive Reiter ist unterstrichen. Mit der Tastatur bedienbare Elemente zeigen einen deutlichen Fokusrahmen.
 
-**Anlagenschema (Übersicht):** Die Übersicht zeigt den Heizkreis als Bild: Kessel, Dreiwege-Mischer, Pumpe, Haus mit Heizkörper sowie Vor- und Rücklaufleitung. Die Messwerte stehen direkt an der Stelle, an der sie gemessen werden:
+**Einstellkarten in Kästen** (ab 2.12.1): Jede Einstellkarte ist in beschriftete Kästen (Fieldsets) gegliedert – z. B. *Regler*: Stellantrieb (K1/K2), Regelverhalten, Wärmemenge Regelkreis (Pumpe K3), Wärmemenge Heizkreis (Wärmequelle), Status-LED; *Relais K4*: Funktion, Wärmeanforderung, Mindestzeiten, Störmeldung, Zirkulation, Entfeuchter; *Netzwerk*: WLAN und Zugang, IP-Adresse, Uhrzeit, MQTT / Home Assistant, Modbus TCP; *Heizkurve & Grenzen*: Heizkurve, Vorlauf-Grenzen, Außentemperatur, Rücklaufbegrenzung; *Stützpunkte*: die vier Punkte nebeneinander; *Kühlen*: Sollwert und Kühlgrenze, Kühlkurve Punkt A/B, Vorlauf-Grenzen und Taupunkt; *Zeitprogramm*: Grundeinstellung, Tägliches Absenkfenster; *Fühler*: je Fühler ein Kasten. Die Feldnamen im Kasten sind gekürzt (der Kasten nennt den Bezug, Protokoll und Meldungen verwenden weiter die vollen Namen). Die Kästen fließen spaltenweise ohne Lücken; Kästen, deren Felder bei der aktuellen Wahl keine Bedeutung haben, werden ausgeblendet (K4-Funktion, Programmart). Auf dem Smartphone stehen sie untereinander, die Namen über den Feldern. Technisch: Tabelle `GRP` in `web_ui.h` (erstes Feld einer Gruppe → Überschrift und Kürzungen), `fgSync()` blendet leere Kästen aus.
 
-- Außentemperatur (mit gedämpftem Wert) links oben
+**Anlagenschema (Übersicht):** Die Übersicht zeigt den Heizkreis als Bild: Puffer, Dreiwege-Mischer, Pumpe, Haus mit Heizkörper sowie Vor- und Rücklaufleitung. Die Messwerte stehen direkt an der Stelle, an der sie gemessen werden:
+
+- Außentemperatur (mit gedämpftem Wert) links oben, daneben wahlweise die **Leistung der Wärmepumpe** in W (ab 2.13.0, per MQTT, siehe [Leistung der Wärmepumpe](#leistung-der-wärmepumpe))
 - Mischerstellung und Laufrichtung (▲ öffnet / ▼ schließt / steht) neben dem Mischer; die beiden Ventilwege werden je nach Stellung kräftiger oder blasser
-- Vorlauf-Ist groß über der Leitung, darunter der Vorlauf-Soll
+- Regelkreis Vorlauf groß über der Leitung, darunter der Vorlauf-Soll
 - Raumtemperatur mit Raumsoll und Raumkorrektur im Haus
-- Rücklauf und Spreizung unter der Rücklaufleitung
+- Regelkreis Rücklauf und Spreizung unter der Rücklaufleitung
 
 Läuft die Pumpe, dreht sich das Pumpensymbol und in den Leitungen ist die Fließrichtung zu sehen; ist sie aus, werden die Leitungen blasser. Wer in den Systemeinstellungen „Bewegung reduzieren“ eingeschaltet hat, sieht keine Animation. Auf dem Smartphone bleibt das Schema als Bild stehen, die Werte erscheinen darunter in einem zweispaltigen Raster in großer Schrift. Unter dem Schema folgen der Balken der Mischerstellung, der Zähler der Stellvorgänge und die Statusanzeigen. Rechts daneben (auf dem Smartphone darunter) wählt man die Betriebsart und stellt Raumsoll, festen Sollwert und Handstellung ein.
 
@@ -192,19 +225,19 @@ Im Kopf steht das **GLW8-Logo**: eine Flamme als Bildmarke und der Schriftzug �
 
 | Reiter | Inhalt |
 |---|---|
-| **Übersicht** | Anlagenschema mit allen Messwerten, Mischerstellung und Zähler der Stellvorgänge (im Kühlbetrieb türkis mit Schneeflocke); Statusanzeigen (Pumpe mit Laufzeit seit Neustart, Kühlbetrieb, Feuchte und Taupunkt); Betriebsart; Schnelleinstellung von Raumsoll, Raumsoll Kühlen, festem Sollwert und Handstellung; Handschaltung von Mischer und Pumpe |
+| **Übersicht** | Anlagenschema mit allen Messwerten, Mischerstellung farbig von kalt (blau) nach warm (orange) und Zähler der Stellvorgänge (im Kühlbetrieb türkis mit Schneeflocke); Statusanzeigen (Pumpe mit Laufzeit seit Neustart, Kühlbetrieb, Feuchte und Taupunkt, Wärmeleistung und Wärmemenge heute für Regelkreis und Heizkreis, Relais K4, Ersatzwerte); mit Heizung-Fühlern links die **Wärmequelle** mit Heizung Vorlauf/Rücklauf und Leistung; Betriebsart; Schnelleinstellung von Raumsoll, Raumsoll Kühlen, festem Sollwert, Handstellung und (ab 2.17.6) **Verschiebung Heizkurve** −5 … +5 K (= Niveau/Parallelverschiebung, im Reiter Heizkurve bis ±15 K); Handschaltung von Mischer, Pumpe und K4 |
 | **Verlauf** | Temperaturen, Mischerstellung und Pumpe der letzten 1, 6, 12 oder 24 Stunden oder **7 Tage** (Stundenmittel); Download als CSV-Liste |
-| **Heizkurve** | Grafik der Heizkurve mit aktuellem Arbeitspunkt, per Maus oder Finger einstellbar; Heizungsprofile, Heizkurve und Grenzwerte, Rücklaufbegrenzung, Raumeinfluss, **Kühlen & Taupunktschutz**, Export der Heizkurve als CSV |
+| **Heizkurve** | Grafik der Heizkurve mit aktuellem Arbeitspunkt und – bei 4 Stützpunkten – markierten Punkten P1 … P4, per Maus oder Finger einstellbar; Heizungsprofile, Heizkurve und Grenzwerte, Rücklaufbegrenzung, Raumeinfluss, **Kühlen & Taupunktschutz**, Export der Heizkurve als CSV |
 | **Zeitprogramm** | Absenkbetrieb, tägliches Absenkfenster oder Wochenprogramm |
-| **Regler** | Stellantrieb (3-Punkt oder 0–10 V), Motorlaufzeit, PI-Parameter, Relais-Polarität, Volumenstrom; Karte **Relais K4** (Funktion, Zeiten, Zustand, bei „Frei schaltbar“ EIN/AUS) |
-| **Fühler** | Zustand jedes Fühlers; Anschlussart (eigene Pins / gemeinsamer Bus) mit Zuordnungstabelle; Herkunft (Pin oder MQTT), MQTT-Topic und Korrektur je Fühler; MQTT-Topic der Raumfeuchte für den Taupunktschutz |
+| **Regler** | Stellantrieb (3-Punkt oder 0–10 V), Motorlaufzeit, PI-Parameter, Relais-Polarität, Volumenstrom Regelkreis und Heizkreis, Mindestspreizung Heizkreis; Karte **Relais K4** (Funktion, Zeiten, Zustand, bei „Frei schaltbar“ EIN/AUS) |
+| **Fühler** | Zustand jedes Fühlers (Wert Pin, MQTT und Bluetooth); Liste **DS18B20 an den Bussen** (Bus, Seriennummer, Temperatur, Zuordnung); Liste der **Bluetooth-Sensoren** (RuuviTag, Shelly BLU H&T) mit Suche und Zuordnung per Klick; Herkunft, MQTT-Topic, Bluetooth-MAC, Shelly-Schlüssel und Korrektur je Fühler; MQTT-Topic der Raumfeuchte für den Taupunktschutz |
 | **Netzwerk** | WLAN, Hostname, Web-Passwort, MQTT, Home Assistant, Modbus TCP und RTU, OTA |
-| **System** | Kennwerte als Liste: Firmware, Profil, IP, WLAN-Signal, **Programmlaufzeit** (sekundengenau, läuft live mit, z. B. „13 Tage 00:04:16 · gestartet 04.10.2026 04:01“), freier Speicher (mit größtem Block, Zerstückelung und Minimum seit Start), **letzter Absturz** mit Ursache, Pumpenlaufzeit, Stellvorgänge, Modbus RTU, OTA mit letztem Update, Heizkurven-Soll und letzter Stellschritt mit Zeitstempel; Zählerkarte (seit Neustart und gesamt) mit Speichern/Zurücksetzen; Mischer kalibrieren, Firmware-Update, Neustart, Werkseinstellungen; Karte **Gerät und Netzwerk** mit MAC-Adressen, WLAN-Verbindung, IP-Konfiguration, MQTT-Broker, Chip, Flash, Dateisystem und Software-Ständen (siehe [Gerät und Netzwerk](#gerät-und-netzwerk)); Karte **Firmware von glw8.at** (auf neue Firmware prüfen und installieren); Ereignisprotokoll mit den letzten 67 Ereignissen (neueste oben, nummeriert, alle 5 s aufgefrischt) |
-| **Hilfe** | Kurzanleitung für die Bedienung (ohne Hinweise zur Arduino IDE) mit den wichtigsten Informationen aus dieser README in aufklappbaren Abschnitten: Sicherheit, erste Inbetriebnahme, Reiter, Betriebsarten, Handschaltung, Heizkurve einstellen (mit Tipps „zu kalt / zu warm“), Heizkurve über 4 Stützpunkte (Einrichten und Feinabstimmung je Punkt), Profile, Zeitprogramm und Raum, Mischerregler, Fühler, Schutzfunktionen und Störungen, Anschlüsse, MQTT/Home Assistant/Modbus, Update und Zurücksetzen. Hostname, MQTT-Basis-Topic und Firmware-Version werden mit den echten Werten des Reglers angezeigt. Funktioniert ohne Internet. |
+| **System** | Kennwerte als Liste: Firmware, Profil, IP, WLAN-Signal, **Programmlaufzeit** (sekundengenau, läuft live mit, z. B. „13 Tage 00:04:16 · gestartet 04.10.2026 04:01“), freier Speicher (mit größtem Block, Zerstückelung und Minimum seit Start), **letzter Absturz** mit Ursache, Pumpenlaufzeit, Stellvorgänge, Relais K4, Modbus RTU, OTA mit letztem Update, Heizkurven-Soll, Wärmeleistung und Wärmemenge, letzter Stellschritt mit Zeitstempel; Zählerkarte (seit Neustart und gesamt, auch Wärmemenge und Relais K4) mit Speichern/Zurücksetzen; Karte **Einstellungen sichern und übertragen**; Mischer kalibrieren, Firmware-Update, Neustart, Werkseinstellungen; Karte **Gerät und Netzwerk** mit MAC-Adressen, WLAN-Verbindung, IP-Konfiguration, MQTT-Broker, Chip, Flash, Dateisystem und Software-Ständen (siehe [Gerät und Netzwerk](#gerät-und-netzwerk)); Karte **Firmware von glw8.at** (auf neue Firmware prüfen und installieren, aus dem Modul GlwOta); Ereignisprotokoll mit den letzten 67 Ereignissen (neueste oben, nummeriert, alle 5 s aufgefrischt) |
+| **Hilfe** | Kurzanleitung für die Bedienung (ohne Hinweise zur Arduino IDE) mit den wichtigsten Informationen aus dieser README in aufklappbaren Abschnitten: Sicherheit, erste Inbetriebnahme, Reiter, Betriebsarten, Handschaltung, Heizkurve einstellen (mit Tipps „zu kalt / zu warm“), Heizkurve über 4 Stützpunkte (Einrichten und Feinabstimmung je Punkt), Profile, Zeitprogramm und Raum, Mischerregler, Fühler (auch Bluetooth), Schutzfunktionen und Störungen, Anschlüsse, Relais K4, MQTT/Home Assistant/Modbus, Update und Zurücksetzen. Hostname, MQTT-Basis-Topic und Firmware-Version werden mit den echten Werten des Reglers angezeigt. Funktioniert ohne Internet. |
 
 **Werte in den Diagrammen ablesen:** In allen Diagrammen (Heizkurve, Temperaturverlauf, Mischer/Pumpe) erscheinen die Werte, sobald man mit der Maus darüberfährt oder mit dem Finger darauf tippt. Eine gestrichelte senkrechte Linie markiert die Stelle, auf den Kurven sitzen kleine Kreise, und ein Kästchen zeigt die Zahlen:
 
-- **Heizkurve:** Außentemperatur (in 0,5-°C-Schritten), der Vorlauf-Sollwert laut Kurve und der Raumsollwert, mit dem gerechnet wird. Ist der Wert durch *Vorlauf min/max* begrenzt oder liegt die Außentemperatur über der Heizgrenze, steht das darunter.
+- **Heizkurve:** Außentemperatur (in 0,5-°C-Schritten), der Vorlauf-Sollwert laut Kurve und der Raumsollwert, mit dem gerechnet wird. Ist der Wert durch *Regelkreis Vorlauf min/max* begrenzt oder liegt die Außentemperatur über der Heizgrenze, steht das darunter.
 - **Verlauf:** Datum und Uhrzeit des nächstgelegenen Messpunkts (bei 1 h mit Sekunden), alle eingeblendeten Temperaturen, Mischerstellung und Pumpe, dazu wie lange das her ist. Die Anzeige gilt für beide Grafiken gleichzeitig, so sieht man direkt, wie der Mischer auf eine Temperatur reagiert hat.
 
 Mit der Maus folgt die Anzeige dem Zeiger und verschwindet beim Verlassen der Grafik. Auf dem Smartphone tippt man auf die Grafik oder wischt waagrecht darüber; die Anzeige bleibt nach dem Loslassen stehen und verschwindet beim Tippen außerhalb. Senkrechtes Wischen scrollt die Seite wie gewohnt. Das Kästchen steht oben in der Grafik, damit der Finger es nicht verdeckt. Die Anzeige bleibt richtig, wenn neue Werte eintreffen.
@@ -228,11 +261,11 @@ Kommt bei einem Fühler der Wert über MQTT, steht hinter seinem Namen „(MQTT)
 | Betriebsart | Web | MQTT | Verhalten |
 |---|---|---|---|
 | Aus | Aus | `off` | Mischer zu, Pumpe aus. Der Frostschutz bleibt aktiv. |
-| Automatik | Automatik | `auto` | Vorlauf nach Heizkurve, mit Zeitprogramm, Raumeinfluss und Heizgrenze |
-| Raumtemperatur | Raumtemperatur | `room` | Vorlauf **nur nach der Raumtemperatur**: Ein PI-Raumregler hebt bzw. senkt den Vorlauf-Sollwert, bis der Raum sein Soll hält – ohne Heizkurve, Heizgrenze und Außentemperatur. Braucht einen Raumfühler; ohne Raumwert Ersatzbetrieb (siehe [Regelung im Detail](#betriebsart-raumtemperatur-nur-nach-raumtemperatur)) |
+| Automatik | Automatik | `auto` | Regelkreis-Vorlauf nach Heizkurve, mit Zeitprogramm, Raumeinfluss und Heizgrenze |
+| Raumtemperatur | Raumtemperatur | `room` | Regelkreis-Vorlauf **nur nach der Raumtemperatur**: Ein PI-Raumregler hebt bzw. senkt den Vorlauf-Sollwert, bis der Raum sein Soll hält – ohne Heizkurve, Heizgrenze und Außentemperatur. Braucht einen Raumfühler; ohne Raumwert Ersatzbetrieb (siehe [Regelung im Detail](#betriebsart-raumtemperatur-nur-nach-raumtemperatur)) |
 | Fester Sollwert | Fester Sollwert | `manual` | Regelt auf einen festen Vorlauf-Sollwert, unabhängig vom Wetter |
 | Handbetrieb | Handbetrieb | `hand` | Die Mischerstellung wird direkt in % vorgegeben, etwa zum Testen. Die Pumpe läuft. |
-| Kühlen | Kühlen | `cool` | Über der Kühlgrenze Vorlauf nach Kühlkurve mit Raumeinfluss und Taupunktschutz, darunter ruht der Heizkreis (siehe [Kühlen](#kühlen)) |
+| Kühlen | Kühlen | `cool` | Über der Kühlgrenze Regelkreis-Vorlauf nach Kühlkurve mit Raumeinfluss und Taupunktschutz, darunter ruht der Heizkreis (siehe [Kühlen](#kühlen)) |
 | Heizen/Kühlen automatisch | Heizen/Kühlen | `heat_cool` | Unter der Heizgrenze heizen wie „Automatik“, über der Kühlgrenze kühlen, dazwischen ruht der Heizkreis |
 
 Der Übertemperaturschutz wirkt in allen Betriebsarten. Wie die Regelung in jeder Betriebsart im Einzelnen arbeitet und welche Messwerte wie wirken, steht im nächsten Kapitel [Regelung im Detail](#regelung-im-detail).
@@ -285,8 +318,8 @@ Jede Betriebsart besteht aus denselben zwei Ebenen:
                          (Frostschutz, Übertemperatur, Taupunkt, Rücklaufbegrenzung)
 ```
 
-1. **Sollwertbildung:** Hier unterscheiden sich die Betriebsarten. Sie legen fest, *wie warm* der Vorlauf sein soll, ob die Pumpe läuft und ob überhaupt geregelt wird.
-2. **Vorlaufregelung:** Ein PI-Regler vergleicht den gemessenen Vorlauf mit dem Soll und verstellt den Mischer, bis beide übereinstimmen. Das läuft in allen Betriebsarten gleich, nur beim Kühlen mit umgekehrter Wirkrichtung (siehe [Vorlaufregelung](#vorlaufregelung-mischer)).
+1. **Sollwertbildung:** Hier unterscheiden sich die Betriebsarten. Sie legen fest, *wie warm* der Regelkreis-Vorlauf sein soll, ob die Pumpe läuft und ob überhaupt geregelt wird.
+2. **Vorlaufregelung:** Ein PI-Regler vergleicht den gemessenen Regelkreis-Vorlauf mit dem Soll und verstellt den Mischer, bis beide übereinstimmen. Das läuft in allen Betriebsarten gleich, nur beim Kühlen mit umgekehrter Wirkrichtung (siehe [Vorlaufregelung](#vorlaufregelung-mischer)).
 
 In der Betriebsart *Raumtemperatur* kommt vor die Vorlaufregelung ein zweiter, langsamer Regler für den Raum. Das ist eine **Kaskade**: Der Raumregler gibt dem Mischerregler den Vorlauf-Sollwert vor.
 
@@ -308,7 +341,7 @@ Ein Regelzyklus läuft immer in derselben Reihenfolge ab:
 4. **Heizkurven-Soll** berechnen (immer, auch zur Anzeige), Kühlgrenze und Kühlkurve, Taupunkt.
 5. **Raumeinfluss:** Raumaufschaltung und Raumabschaltung bzw. Raumregler.
 6. **Sollwert je Betriebsart** festlegen und entscheiden, ob geregelt wird und ob die Pumpe läuft.
-7. **Rücklaufbegrenzung** und **Grenzen** (Vorlauf min/max bzw. Taupunkt-Untergrenze).
+7. **Rücklaufbegrenzung** und **Grenzen** (Regelkreis Vorlauf min/max bzw. Taupunkt-Untergrenze).
 8. **Übertemperatur** und **Taupunktalarm** prüfen.
 9. **Mischer** ansteuern (Rangfolge siehe [Schutzfunktionen](#vorrang-der-schutzfunktionen)) und **Pumpe** schalten.
 
@@ -316,8 +349,8 @@ Ein Regelzyklus läuft immer in derselben Reihenfolge ab:
 
 | Messwert | Aufbereitung | wirkt auf |
 |---|---|---|
-| **Vorlauf** | direkt | Istwert der Vorlaufregelung (alle Betriebsarten außer Aus/Hand); Übertemperaturschutz; Taupunktalarm beim Kühlen; Anti-Windup des Raumreglers |
-| **Rücklauf** | direkt | nur die Rücklaufbegrenzung (wenn *Rücklauf max* > 0, nur beim Heizen); sonst Anzeige und Verlauf |
+| **Regelkreis Vorlauf** | direkt | Istwert der Vorlaufregelung (alle Betriebsarten außer Aus/Hand); Übertemperaturschutz; Taupunktalarm beim Kühlen; Anti-Windup des Raumreglers |
+| **Regelkreis Rücklauf** | direkt | nur die Rücklaufbegrenzung (wenn *Regelkreis Rücklauf max* > 0, nur beim Heizen); sonst Anzeige und Verlauf |
 | **Außen, ungedämpft** | direkt | **Frostschutz** (reagiert sofort) |
 | **Außen, gedämpft** | Tiefpass mit *Dämpfung Außentemperatur* (Radiator 45 min, Fußboden 180 min) | **Heizkurve**, **Heizgrenze**, **Kühlkurve**, **Kühlgrenze**; Startwert des Raumreglers |
 | **Raum** | direkt (DS18B20 oder extern, z. B. Zigbee über MQTT) | Raumaufschaltung und Raumabschaltung (nur mit *Raumtemperatur berücksichtigen*); **Raumregler** (Betriebsart *Raumtemperatur*, immer); Taupunkt beim Kühlen |
@@ -331,13 +364,13 @@ Ein Regelzyklus läuft immer in derselben Reihenfolge ab:
 
 - **Sollwert:** keiner, der Mischer fährt zu, die Pumpe ist aus.
 - **Es wirken nur noch Schutzfunktionen:**
-  - **Frostschutz:** Ungedämpfte Außentemperatur unter *Frostschutz* (3 °C) → Pumpe ein, Vorlauf auf *Vorlauf min* regeln. Aus erst über *Frostschutz* + 1 K.
-  - **Übertemperatur:** Vorlauf über *Vorlauf max* + 5 K → Mischer zu, Pumpe ein (die Wärme soll abfließen).
-- **Messwerte:** Außen (roh) für den Frostschutz, Vorlauf für Übertemperatur und Frostschutz-Regelung. Raum und Rücklauf haben keinen Einfluss.
+  - **Frostschutz:** Ungedämpfte Außentemperatur unter *Frostschutz* (3 °C) → Pumpe ein, Regelkreis-Vorlauf auf *Regelkreis Vorlauf min* regeln. Aus erst über *Frostschutz* + 1 K.
+  - **Übertemperatur:** Regelkreis-Vorlauf über *Regelkreis Vorlauf max* + 5 K → Mischer zu, Pumpe ein (die Wärme soll abfließen).
+- **Messwerte:** Außen (roh) für den Frostschutz, Regelkreis-Vorlauf für Übertemperatur und Frostschutz-Regelung. Raum und Regelkreis-Rücklauf haben keinen Einfluss.
 
 ### Betriebsart „Automatik“ (witterungsgeführt)
 
-Der klassische Betrieb: Die Außentemperatur bestimmt über die Heizkurve den Vorlauf, der Raum korrigiert nur.
+Der klassische Betrieb: Die Außentemperatur bestimmt über die Heizkurve den Regelkreis-Vorlauf, der Raum korrigiert nur.
 
 ```
 Raumsoll_wirksam = Raumsoll − Absenkung (in der Absenkzeit)
@@ -354,23 +387,23 @@ Vorlauf-Soll     = Kurve + Raumkorrektur − Rücklaufbegrenzung          → be
 
 | Messwert | Einfluss |
 |---|---|
-| Außen (gedämpft) | **Hauptgröße**: 1 K kälter → bei Neigung 1,0 und 0 °C außen etwa +0,9 K Vorlauf; entscheidet über Heizgrenze |
-| Raum | nur, wenn *Raumtemperatur berücksichtigen* an ist: ±*Faktor* K Vorlauf je K Abweichung (Faktor 3: Raum 0,5 K zu kalt → +1,5 K), höchstens ±*max. Korrektur*; Raumabschaltung |
-| Rücklauf | nur bei *Rücklauf max* > 0: je K Überschreitung *Faktor* K weniger Vorlauf |
-| Vorlauf | Istwert für den Mischer |
+| Außen (gedämpft) | **Hauptgröße**: 1 K kälter → bei Neigung 1,0 und 0 °C außen etwa +0,9 K Regelkreis-Vorlauf; entscheidet über Heizgrenze |
+| Raum | nur, wenn *Raumtemperatur berücksichtigen* an ist: ±*Faktor* K Regelkreis-Vorlauf je K Abweichung (Faktor 3: Raum 0,5 K zu kalt → +1,5 K), höchstens ±*max. Korrektur*; Raumabschaltung |
+| Regelkreis Rücklauf | nur bei *Regelkreis Rücklauf max* > 0: je K Überschreitung *Faktor* K weniger Regelkreis-Vorlauf |
+| Regelkreis Vorlauf | Istwert für den Mischer |
 
 **Beispiel:** Außen gedämpft 0 °C, Raumsoll 20 °C, Neigung 1,0, Raum 19,5 °C, Faktor 3:
 Kurve 42,3 °C + Raumkorrektur 3 · 0,5 = +1,5 K → **Vorlauf-Soll 43,8 °C**.
-In der Absenkzeit (−4 K, Raumsoll 16 °C) mit Raum noch 19,0 °C: Kurve 34,6 °C, Korrektur 3 · (16 − 19) = −9 K → 25,6 °C, also knapp über *Vorlauf min* 25 °C. Das Haus kühlt langsam aus, wie gewünscht.
+In der Absenkzeit (−4 K, Raumsoll 16 °C) mit Raum noch 19,0 °C: Kurve 34,6 °C, Korrektur 3 · (16 − 19) = −9 K → 25,6 °C, also knapp über *Regelkreis Vorlauf min* 25 °C. Das Haus kühlt langsam aus, wie gewünscht.
 
 **Bei Fühlerausfall:**
 - Außen: Rechnung mit 0 °C weiter, das Haus bleibt warm. Ohne Außenwert kann der Frostschutz nicht auslösen; ein bereits aktiver Frostschutz bleibt aktiv.
 - Raum: Die Raumkorrektur entfällt, die Regelung läuft rein witterungsgeführt.
-- Vorlauf: Der Mischer fährt zu (ohne Istwert keine Regelung).
+- Regelkreis-Vorlauf: Der Mischer fährt zu (ohne Istwert keine Regelung).
 
 ### Betriebsart „Raumtemperatur“ (nur nach Raumtemperatur)
 
-Hier bestimmt **allein der Raum** den Vorlauf. Es gibt keine Heizkurve und keine Heizgrenze, die Außentemperatur spielt keine Rolle. Ein PI-**Raumregler** hebt den Vorlauf-Sollwert, solange der Raum zu kalt ist, und senkt ihn, solange er zu warm ist, bis der Raum sein Soll hält. Das ist sinnvoll ohne Außenfühler, bei Häusern, deren Bedarf stark von Sonne oder Innenwärme abhängt, oder wenn eine Heizkurve schwer zu treffen ist.
+Hier bestimmt **allein der Raum** den Regelkreis-Vorlauf. Es gibt keine Heizkurve und keine Heizgrenze, die Außentemperatur spielt keine Rolle. Ein PI-**Raumregler** hebt den Vorlauf-Sollwert, solange der Raum zu kalt ist, und senkt ihn, solange er zu warm ist, bis der Raum sein Soll hält. Das ist sinnvoll ohne Außenfühler, bei Häusern, deren Bedarf stark von Sonne oder Innenwärme abhängt, oder wenn eine Heizkurve schwer zu treffen ist.
 
 ```
 e            = Raumsoll_wirksam − Raum                       (> 0: Raum zu kalt)
@@ -379,13 +412,13 @@ Grundwert I += Verstärkung · e · Δt / Nachstellzeit           (langsames Nac
 Vorlauf-Soll = I + P − Rücklaufbegrenzung                    → begrenzt auf Vorlauf min … max
 ```
 
-- **Grundwert (I-Anteil):** der Vorlauf, den das Haus bei diesem Wetter braucht. Er stellt sich von selbst ein. Bleibt der Raum dauerhaft 0,3 K zu kalt, steigt er um *Verstärkung* · 0,3 K je *Nachstellzeit*, also bei 12 K/K und 60 min um 3,6 K pro Stunde, bis die Abweichung verschwindet. **Startwert:** das Heizkurven-Soll, wenn ein Außenwert vorliegt, sonst *Vorlauf fest*.
-- **Raumanteil (P-Anteil):** reagiert sofort. Bei 12 K/K hebt ein 0,5 K zu kalter Raum den Vorlauf um 6 K. Das bringt schnell Wärme, z. B. nach dem Lüften.
-- **Anti-Windup:** Der Grundwert wächst nicht weiter, wenn das Soll schon an *Vorlauf max* liegt oder der Mischer ganz offen ist und der Vorlauf trotzdem mehr als 2 K unter dem Soll bleibt (Kessel zu kalt). Nach unten hört er bei *Vorlauf min* auf. So schießt der Raum später nicht über.
-- **Heizpause:** Liegt der Raum um *Heizpause ab* (Radiator 0,5 K, Fußboden 1,0 K) über dem Soll, fährt der Mischer zu und die Pumpe aus. Geheizt wird wieder, sobald der Raum unter das Soll fällt. Der Grundwert bleibt währenddessen stehen. 0 = nie Pause (der Vorlauf sinkt dann höchstens auf *Vorlauf min*).
-- **Absenkung:** Sie senkt das Raumsoll, der Regler nimmt den Vorlauf entsprechend zurück oder macht Pause. Am Ende der Absenkzeit hebt der P-Anteil den Vorlauf sofort an.
+- **Grundwert (I-Anteil):** der Regelkreis-Vorlauf, den das Haus bei diesem Wetter braucht. Er stellt sich von selbst ein. Bleibt der Raum dauerhaft 0,3 K zu kalt, steigt er um *Verstärkung* · 0,3 K je *Nachstellzeit*, also bei 12 K/K und 60 min um 3,6 K pro Stunde, bis die Abweichung verschwindet. **Startwert:** das Heizkurven-Soll, wenn ein Außenwert vorliegt, sonst *Regelkreis Vorlauf fest*.
+- **Raumanteil (P-Anteil):** reagiert sofort. Bei 12 K/K hebt ein 0,5 K zu kalter Raum den Regelkreis-Vorlauf um 6 K. Das bringt schnell Wärme, z. B. nach dem Lüften.
+- **Anti-Windup:** Der Grundwert wächst nicht weiter, wenn das Soll schon an *Regelkreis Vorlauf max* liegt oder der Mischer ganz offen ist und der Regelkreis-Vorlauf trotzdem mehr als 2 K unter dem Soll bleibt (Puffer zu kalt). Nach unten hört er bei *Regelkreis Vorlauf min* auf. So schießt der Raum später nicht über.
+- **Heizpause:** Liegt der Raum um *Heizpause ab* (Radiator 0,5 K, Fußboden 1,0 K) über dem Soll, fährt der Mischer zu und die Pumpe aus. Geheizt wird wieder, sobald der Raum unter das Soll fällt. Der Grundwert bleibt währenddessen stehen. 0 = nie Pause (der Regelkreis-Vorlauf sinkt dann höchstens auf *Regelkreis Vorlauf min*).
+- **Absenkung:** Sie senkt das Raumsoll, der Regler nimmt den Regelkreis-Vorlauf entsprechend zurück oder macht Pause. Am Ende der Absenkzeit hebt der P-Anteil den Regelkreis-Vorlauf sofort an.
 - **Der Raumwert wird immer verwendet**, auch wenn *Raumtemperatur berücksichtigen* aus ist. Raumaufschaltung und Raumabschaltung sind in dieser Betriebsart abgeschaltet, sie würden doppelt wirken.
-- **Ohne Raumwert (Ersatzbetrieb):** Fehlt der Raumwert (Fühler gestört, Zigbee-Batterie leer, Zeitüberwachung abgelaufen), regelt der Regler mit Außenwert wie *Automatik* ohne Raumeinfluss (Heizkurve, Heizgrenze), ohne Außenwert auf *Vorlauf fest*. Das steht als rotes Etikett in der Übersicht und im Ereignisprotokoll. Kommt der Raumwert zurück, macht der Raumregler mit seinem alten Grundwert weiter.
+- **Ohne Raumwert (Ersatzbetrieb):** Fehlt der Raumwert (Fühler gestört, Zigbee-Batterie leer, Zeitüberwachung abgelaufen), regelt der Regler mit Außenwert wie *Automatik* ohne Raumeinfluss (Heizkurve, Heizgrenze), ohne Außenwert auf *Regelkreis Vorlauf fest*. Das steht als rotes Etikett in der Übersicht und im Ereignisprotokoll. Kommt der Raumwert zurück, macht der Raumregler mit seinem alten Grundwert weiter.
 - **Frostschutz und Übertemperatur** wirken wie überall; der Frostschutz braucht dafür einen Außenwert.
 
 **Einstellwerte** (Karte *Raumregelung* im Reiter *Heizkurve*; gehören zu den Profilen):
@@ -402,10 +435,10 @@ Die Werte habe ich an einem einfachen Hausmodell geprüft. Mit ihnen blieb der R
 
 | Messwert | Einfluss |
 |---|---|
-| Raum | **einzige Führungsgröße**: 0,1 K Abweichung → sofort 1,2 K Vorlauf (P), dazu 1,2 K pro Stunde Nachführen (I) |
+| Raum | **einzige Führungsgröße**: 0,1 K Abweichung → sofort 1,2 K Regelkreis-Vorlauf (P), dazu 1,2 K pro Stunde Nachführen (I) |
 | Außen | kein Einfluss auf den Sollwert; nur Startwert des Grundwerts, Frostschutz und Ersatzbetrieb |
-| Rücklauf | Rücklaufbegrenzung wie bei *Automatik* |
-| Vorlauf | Istwert für den Mischer; Anti-Windup |
+| Regelkreis Rücklauf | Rücklaufbegrenzung wie bei *Automatik* |
+| Regelkreis Vorlauf | Istwert für den Mischer; Anti-Windup |
 
 **Beispiel:** Grundwert 41,0 °C, Raumsoll 20,0 °C, Raum 19,7 °C → e = 0,3 K, P = 12 · 0,3 = 3,6 K → **Vorlauf-Soll 44,6 °C**. Bleibt der Raum eine Stunde bei 19,7 °C, steigt der Grundwert auf 44,6 °C und das Soll auf 48,2 °C. Erreicht der Raum 20,0 °C, ist P = 0 und das Soll gleich dem Grundwert.
 
@@ -418,19 +451,19 @@ Vorlauf-Soll = Vorlauf fest − Rücklaufbegrenzung   → begrenzt auf Vorlauf m
 ```
 
 - Pumpe läuft dauernd, keine Heizgrenze, keine Absenkung, kein Raumeinfluss.
-- **Messwerte:** Vorlauf (Istwert), Rücklauf (Begrenzung), Außen nur für den Frostschutz. Der Raum wird nur angezeigt.
+- **Messwerte:** Regelkreis-Vorlauf (Istwert), Regelkreis-Rücklauf (Begrenzung), Außen nur für den Frostschutz. Der Raum wird nur angezeigt.
 - Gedacht für Inbetriebnahme, Estrich-Aufheizprogramme von Hand, Warmwasser-Vorrang-Tests oder als Notbetrieb ohne Außenfühler.
 
 ### Betriebsart „Handbetrieb“
 
-- Der Mischer fährt auf *Mischer %*, die Pumpe läuft. Es gibt **keine Regelung**; Vorlauf, Außen und Raum werden nur angezeigt.
+- Der Mischer fährt auf *Mischer %*, die Pumpe läuft. Es gibt **keine Regelung**; Regelkreis-Vorlauf, Außen und Raum werden nur angezeigt.
 - Der **Übertemperaturschutz** hat trotzdem Vorrang und schließt den Mischer.
 - Der Frostschutz regelt im Handbetrieb nicht (die Pumpe läuft ohnehin).
 - Nicht zu verwechseln mit der **Handschaltung** (Mischer AUF/ZU, Pumpe EIN/AUS von Hand), die in jeder Betriebsart für höchstens 24 h möglich ist.
 
 ### Betriebsart „Kühlen“
 
-Voraussetzung: Die Wärmepumpe liefert kaltes Wasser an den Mischer. Mischer **AUF** bedeutet dann *mehr kaltes Wasser* und damit einen *kälteren* Vorlauf; die Wirkrichtung ist umgekehrt.
+Voraussetzung: Die Wärmepumpe liefert kaltes Wasser an den Mischer. Mischer **AUF** bedeutet dann *mehr kaltes Wasser* und damit einen *kälteren* Regelkreis-Vorlauf; die Wirkrichtung ist umgekehrt.
 
 ```
 Kühlkurve     = Gerade durch A (22 °C → 22 °C) und B (32 °C → 18 °C) über der gedämpften Außentemperatur
@@ -441,20 +474,20 @@ Vorlauf-Soll  = Kühlkurve + Raumkorrektur                           → begrenz
 
 - **Kühlgrenze:** gekühlt wird erst über *Kühlgrenze* + 0,5 K (gedämpft), Ende unter *Kühlgrenze* − 0,5 K. Dazwischen ruht der Heizkreis (Mischer zu, Pumpe aus).
 - **Keine Absenkung** beim Kühlen, es gilt *Raumsoll Kühlen*.
-- **Taupunktschutz:** Der Taupunkt wird aus Raumtemperatur und Raumfeuchte berechnet (Magnus-Formel). Das Soll geht nie unter *Taupunkt + Abstand*. Fällt der gemessene Vorlauf trotzdem unter *Taupunkt + 0,5 K*, schließt der Mischer sofort (Taupunktalarm), die Pumpe läuft weiter.
+- **Taupunktschutz:** Der Taupunkt wird aus Raumtemperatur und Raumfeuchte berechnet (Magnus-Formel). Das Soll geht nie unter *Taupunkt + Abstand*. Fällt der gemessene Regelkreis-Vorlauf trotzdem unter *Taupunkt + 0,5 K*, schließt der Mischer sofort (Taupunktalarm), die Pumpe läuft weiter.
 - **Bei Frost** (ungedämpft unter *Frostschutz*) wird nie gekühlt.
 
 **Einfluss der Messwerte:**
 
 | Messwert | Einfluss |
 |---|---|
-| Außen (gedämpft) | Kühlkurve: 1 K wärmer → 0,4 K kälterer Vorlauf; Kühlgrenze |
+| Außen (gedämpft) | Kühlkurve: 1 K wärmer → 0,4 K kälterer Regelkreis-Vorlauf; Kühlgrenze |
 | Raum | Raumaufschaltung (mit *Raumtemperatur berücksichtigen*), Raumabschaltung (Raum um den Wert *unter* dem Soll → Kühlen aus) und **Taupunkt** |
 | Raumfeuchte | **Taupunkt** → Untergrenze des Vorlaufs; ohne Feuchtewert gilt die feste Ersatz-Untergrenze (20 °C) |
-| Vorlauf | Istwert (umgekehrte Wirkrichtung), Taupunktalarm |
-| Rücklauf | kein Einfluss (keine Rücklaufbegrenzung beim Kühlen) |
+| Regelkreis Vorlauf | Istwert (umgekehrte Wirkrichtung), Taupunktalarm |
+| Regelkreis Rücklauf | kein Einfluss (keine Rücklaufbegrenzung beim Kühlen) |
 
-**Beispiel:** Außen gedämpft 30 °C → Kühlkurve 18,8 °C. Raum 25 °C bei Soll 24 °C → Korrektur 3 · (24 − 25) = −3 K → 15,8 °C. Raumfeuchte 60 % → Taupunkt 16,7 °C, Untergrenze 16,7 + 2 = 18,7 °C → **Vorlauf-Soll 18,7 °C**, Etikett „Vorlauf an Taupunktgrenze“.
+**Beispiel:** Außen gedämpft 30 °C → Kühlkurve 18,8 °C. Raum 25 °C bei Soll 24 °C → Korrektur 3 · (24 − 25) = −3 K → 15,8 °C. Raumfeuchte 60 % → Taupunkt 16,7 °C, Untergrenze 16,7 + 2 = 18,7 °C → **Vorlauf-Soll 18,7 °C**, Etikett „Regelkreis-Vorlauf an Taupunktgrenze“.
 
 ### Betriebsart „Heizen/Kühlen automatisch“
 
@@ -488,34 +521,34 @@ Der Mischer folgt in jedem Zyklus der **ersten** zutreffenden Zeile:
 | Rang | Bedingung | Mischer | Pumpe |
 |---|---|---|---|
 | 1 | Kalibrierfahrt läuft | fährt zu (abwarten) | wie Betriebsart |
-| 2 | **Übertemperatur** (Vorlauf > max + 5 K, aus unter max) | **zu**, beendet Handschaltung | **ein** |
+| 2 | **Übertemperatur** (Regelkreis-Vorlauf > max + 5 K, aus unter max) | **zu**, beendet Handschaltung | **ein** |
 | 3 | **Taupunktalarm** (Kühlen) | **zu**, beendet Handschaltung | ein |
 | 4 | Handschaltung des Mischers | bleibt wie von Hand gestellt | – |
 | 5 | Betriebsart *Handbetrieb* | auf *Mischer %* | ein |
 | 6 | Regelung aktiv | PI-Regler | ein |
-| 7 | sonst (Aus, Heizgrenze, Heizpause, Vorlauffühler defekt) | zu | aus |
+| 7 | sonst (Aus, Heizgrenze, Heizpause, Fühler Regelkreis Vorlauf defekt) | zu | aus |
 
-Der **Frostschutz** wirkt eine Ebene vorher: Wird gerade nicht geregelt (Aus, Sommer, Heizpause) und ist es frostig, schaltet er Regelung und Pumpe ein und regelt auf *Vorlauf min*. Die **Pumpe** läuft bei Übertemperatur und Frost auch dann, wenn sie von Hand ausgeschaltet wurde.
+Der **Frostschutz** wirkt eine Ebene vorher: Wird gerade nicht geregelt (Aus, Sommer, Heizpause) und ist es frostig, schaltet er Regelung und Pumpe ein und regelt auf *Regelkreis Vorlauf min*. Die **Pumpe** läuft bei Übertemperatur und Frost auch dann, wenn sie von Hand ausgeschaltet wurde.
 
 ### Übersicht: Welcher Messwert wirkt in welcher Betriebsart?
 
 | Messwert | Aus | Automatik | Raumtemperatur | Fester Sollwert | Hand | Kühlen | Heizen/Kühlen |
 |---|---|---|---|---|---|---|---|
-| Vorlauf | Schutz | Istwert, Schutz | Istwert, Schutz | Istwert, Schutz | Schutz | Istwert, Taupunktalarm | Istwert, Schutz |
-| Rücklauf | – | Begrenzung¹ | Begrenzung¹ | Begrenzung¹ | – | – | Begrenzung¹ (heizen) |
+| Regelkreis Vorlauf | Schutz | Istwert, Schutz | Istwert, Schutz | Istwert, Schutz | Schutz | Istwert, Taupunktalarm | Istwert, Schutz |
+| Regelkreis Rücklauf | – | Begrenzung¹ | Begrenzung¹ | Begrenzung¹ | – | – | Begrenzung¹ (heizen) |
 | Außen roh | Frost | Frost | Frost | Frost | – | Frost (kein Kühlen) | Frost |
 | Außen gedämpft | – | **Heizkurve**, Heizgrenze | Startwert, Ersatz | – | – | **Kühlkurve**, Kühlgrenze | **Heiz-/Kühlkurve**, beide Grenzen |
 | Raum | – | Korrektur² | **Führungsgröße** | – | – | Korrektur², Taupunkt | Korrektur², Taupunkt |
 | Raumfeuchte | – | – | – | – | – | **Taupunkt** | Taupunkt (kühlen) |
 | Uhrzeit | – | Absenkung | Absenkung | – | – | – | Absenkung (heizen) |
 
-¹ nur wenn *Rücklauf max* > 0 ² Raumaufschaltung und Raumabschaltung, nur mit *Raumtemperatur berücksichtigen*
+¹ nur wenn *Regelkreis Rücklauf max* > 0 ² Raumaufschaltung und Raumabschaltung, nur mit *Raumtemperatur berücksichtigen*
 
 ---
 
 ## Heizkurve
 
-Der Regler kennt zwei Kurvenarten: die **Formel** mit Neigung und Niveau (Werkseinstellung, dieser Abschnitt) und **[4 Stützpunkte](#heizkurve-über-4-stützpunkte)**, bei denen du den Vorlauf für vier Außentemperaturen selbst festlegst. Grenzen, Dämpfung, Heizgrenze und Rücklaufbegrenzung gelten für beide.
+Der Regler kennt zwei Kurvenarten: die **Formel** mit Neigung und Niveau (Werkseinstellung, dieser Abschnitt) und **[4 Stützpunkte](#heizkurve-über-4-stützpunkte)**, bei denen du den Regelkreis-Vorlauf für vier Außentemperaturen selbst festlegst. Grenzen, Dämpfung, Heizgrenze und Rücklaufbegrenzung gelten für beide.
 
 Formel:
 
@@ -524,13 +557,13 @@ d    = T_außen − T_raum
 T_VL = T_raum + Niveau − Neigung · d · (1,4347 + 0,021·d + 0,0002479·d²)
 ```
 
-- **Grenzen:** Das Ergebnis wird auf *Vorlauf min* und *Vorlauf max* begrenzt.
+- **Grenzen:** Das Ergebnis wird auf *Regelkreis Vorlauf min* und *Regelkreis Vorlauf max* begrenzt.
 - **Raumtemperatur in der Formel:** Hier steht der Raumsollwert, im Absenkbetrieb um die Absenkung verringert.
-- **Neigung:** Sie bestimmt, wie stark der Vorlauf mit sinkender Außentemperatur steigt. Richtwerte: Fußbodenheizung 0,3–0,8, Heizkörper 0,8–1,6.
+- **Neigung:** Sie bestimmt, wie stark der Regelkreis-Vorlauf mit sinkender Außentemperatur steigt. Richtwerte: Fußbodenheizung 0,3–0,8, Heizkörper 0,8–1,6.
 - **Niveau:** Es verschiebt die ganze Kurve nach oben oder unten, etwa wenn es bei jedem Wetter gleichmäßig zu kalt ist.
 - **Gedämpfte Außentemperatur:** Ein Tiefpass glättet die Außentemperatur (Standard 45 min, bei Fußbodenheizung 180 min). So reagiert der Regler auf den Trend wie das träge Gebäude und nicht auf jede Wolke.
 - **Heizgrenze:** Liegt die gedämpfte Außentemperatur mehr als 0,5 K über der Heizgrenze, schaltet der Heizkreis ab (Sommerbetrieb). Unter Heizgrenze − 0,5 K schaltet er wieder ein.
-- **Rücklaufbegrenzung:** Übersteigt der Rücklauf *Rücklauf max*, wird der Vorlauf-Sollwert um *Faktor × Überschreitung* gesenkt. Das ist bei Fernwärme oder Brennwertkessel sinnvoll. *Rücklauf max* = 0 schaltet die Funktion aus.
+- **Rücklaufbegrenzung:** Übersteigt der Regelkreis-Rücklauf *Regelkreis Rücklauf max*, wird der Vorlauf-Sollwert um *Faktor × Überschreitung* gesenkt. Das ist bei Fernwärme oder Brennwertkessel sinnvoll. *Regelkreis Rücklauf max* = 0 schaltet die Funktion aus.
 - **Außenfühlerfehler:** Der Regler rechnet mit 0 °C weiter, damit das Haus warm bleibt.
 
 ### Heizkurve über 4 Stützpunkte
@@ -540,7 +573,7 @@ Seit Version 1.34.0 gibt es zwei **Kurvenarten**:
 | Kurvenart | Einstellung | Wie die Kurve entsteht |
 |---|---|---|
 | **Formel** (Werkseinstellung) | `curveMode` = 0 | aus *Neigung* und *Niveau* mit der Formel oben |
-| **4 Stützpunkte** | `curveMode` = 1 | Du legst für vier Außentemperaturen den Vorlauf selbst fest; die Kurve läuft glatt durch alle vier Punkte |
+| **4 Stützpunkte** | `curveMode` = 1 | Du legst für vier Außentemperaturen den Regelkreis-Vorlauf selbst fest; die Kurve läuft glatt durch alle vier Punkte |
 
 #### Wann lohnen sich Stützpunkte?
 
@@ -549,7 +582,7 @@ Die Formel hat nur zwei Stellgrößen. Damit trifft man die meisten Häuser gut,
 - **Nur bei mildem Wetter (0 … +10 °C) zu kühl**, bei Kälte passt es. Mit der Formel müsste man das Niveau heben und dafür die Neigung senken; mit Stützpunkten hebst du einfach Punkt 3 an.
 - **Nur bei strengem Frost zu kalt**, z. B. weil ein Raum schlecht gedämmt ist. Punkt 1 anheben, der Rest bleibt.
 - **Gemischte Anlagen** oder Niedertemperatur-Heizkörper, deren Kennlinie anders gekrümmt ist als die Formel.
-- **Eine vorhandene Kurve übernehmen**, z. B. vom alten Kesselregler oder aus einer Heizlastberechnung, die als Wertetabelle vorliegt.
+- **Eine vorhandene Kurve übernehmen**, z. B. vom alten Pufferregler oder aus einer Heizlastberechnung, die als Wertetabelle vorliegt.
 
 Wer mit Neigung und Niveau zufrieden ist, braucht nichts zu ändern: Die Formel bleibt die Werkseinstellung, und bestehende Anlagen regeln nach einem Update genau wie vorher.
 
@@ -561,13 +594,13 @@ Alle Werte stehen in der Karte **Heizkurve über Stützpunkte** im Reiter *Heizk
 |---|---|---|---|---|
 | Kurvenart | `curveMode` | 0 / 1 | 0 (Formel) | 0 = Formel, 1 = 4 Stützpunkte |
 | Punkt 1: Außen °C | `cpOut1` | −30 … +30 | −15 | kältester Punkt |
-| Punkt 1: Vorlauf °C | `cpFlow1` | 10 … 90 | 55,1 | Vorlauf bei Punkt 1, Raumsoll 20 °C |
+| Punkt 1: Regelkreis Vorlauf °C | `cpFlow1` | 10 … 90 | 55,1 | Regelkreis-Vorlauf bei Punkt 1, Raumsoll 20 °C |
 | Punkt 2: Außen °C | `cpOut2` | −30 … +30 | −5 | |
-| Punkt 2: Vorlauf °C | `cpFlow2` | 10 … 90 | 46,6 | |
+| Punkt 2: Regelkreis Vorlauf °C | `cpFlow2` | 10 … 90 | 46,6 | |
 | Punkt 3: Außen °C | `cpOut3` | −30 … +30 | +5 | |
-| Punkt 3: Vorlauf °C | `cpFlow3` | 10 … 90 | 37,6 | |
+| Punkt 3: Regelkreis Vorlauf °C | `cpFlow3` | 10 … 90 | 37,6 | |
 | Punkt 4: Außen °C | `cpOut4` | −30 … +30 | +15 | wärmster Punkt |
-| Punkt 4: Vorlauf °C | `cpFlow4` | 10 … 90 | 26,7 | |
+| Punkt 4: Regelkreis Vorlauf °C | `cpFlow4` | 10 … 90 | 26,7 | |
 | Raumsoll-Einfluss K/K | `cpRoomK` | 0 … 5 | 1,8 | Vorlaufänderung je K Raumsoll über/unter 20 °C |
 
 Die Werkseinstellungen der Punkte liegen genau auf der Formelkurve mit Neigung 1,0 (Profil Radiatorheizung). Wer nur die Kurvenart umschaltet, ohne Punkte zu ändern, bekommt also fast dieselbe Kurve wie vorher (Abweichung höchstens 0,8 K, siehe Beispiel unten).
@@ -575,7 +608,7 @@ Die Werkseinstellungen der Punkte liegen genau auf der Formelkurve mit Neigung 1
 **Regeln für die Punkte:**
 - Die Außentemperaturen müssen **aufsteigen**: Punkt 1 ist der kälteste, Punkt 4 der wärmste.
 - Zwischen zwei Punkten liegen **mindestens 2 K**. Gibt man zu dicht liegende oder vertauschte Werte ein, schiebt der Regler die Punkte selbst zurecht: Jeder Punkt wird auf mindestens „Vorgänger + 2 K“ gesetzt; würde Punkt 4 dabei über +30 °C rutschen, wird von rechts her nach links geschoben. Beispiel: Eingabe −15 / −5 / −6 / +15 ergibt −15 / −5 / **−3** / +15. Nach dem Speichern zeigt das Formular die tatsächlich übernommenen Werte.
-- Die Vorlaufwerte müssen nicht fallen. Steigt die Kurve irgendwo an (wärmerer Vorlauf bei wärmerem Wetter), rechnet der Regler das trotzdem sauber, nur ist das für eine Heizung selten sinnvoll.
+- Die Vorlaufwerte müssen nicht fallen. Steigt die Kurve irgendwo an (wärmerer Regelkreis-Vorlauf bei wärmerem Wetter), rechnet der Regler das trotzdem sauber, nur ist das für eine Heizung selten sinnvoll.
 - Werte außerhalb der Bereiche werden auf die Grenze gesetzt.
 
 #### So rechnet der Regler
@@ -584,24 +617,24 @@ Die Werkseinstellungen der Punkte liegen genau auf der Formelkurve mit Neigung 1
 T_VL = Spline(T_außen) + Raumsoll-Einfluss · (T_raum − 20) + Niveau
 ```
 
-danach wie immer auf *Vorlauf min* … *Vorlauf max* begrenzt. Im Einzelnen:
+danach wie immer auf *Regelkreis Vorlauf min* … *Regelkreis Vorlauf max* begrenzt. Im Einzelnen:
 
 1. **Spline zwischen den Punkten.** Zwischen zwei benachbarten Punkten verbindet ein kubisches Kurvenstück die beiden Vorlaufwerte. Die Steigungen an den Punkten wählt der Regler nach dem Verfahren von **Fritsch und Carlson** („PCHIP“, monotone stückweise kubische Hermite-Interpolation):
    - Die Kurve läuft **exakt durch jeden Punkt**.
    - Sie ist **glatt**, hat also an den Punkten keinen Knick.
-   - Sie ist **monoton** und **schwingt nicht über**: Zwischen zwei Punkten liegt der Vorlauf immer zwischen deren Werten. Fällt die Kurve von Punkt 1 bis 4, fällt sie überall.
+   - Sie ist **monoton** und **schwingt nicht über**: Zwischen zwei Punkten liegt der Regelkreis-Vorlauf immer zwischen deren Werten. Fällt die Kurve von Punkt 1 bis 4, fällt sie überall.
    - Ein Punkt beeinflusst nur die beiden Abschnitte links und rechts von ihm. Verschiebt man Punkt 3, ändert sich die Kurve zwischen Punkt 2 und 4, nicht aber bei −15 °C.
 
    Das ist der Grund, warum der Regler keine Bézier-Kurve verwendet: Bei Bézier liegen die Kontrollpunkte neben der Kurve, nicht auf ihr, und eine Kurve über der Außentemperatur lässt sich damit nur umständlich ausrechnen.
 
-2. **Außerhalb der Punkte.** Links von Punkt 1 und rechts von Punkt 4 läuft die Kurve **geradlinig** weiter, mit der Steigung, die sie am Randpunkt hat. Bei −20 °C außen und Punkt 1 bei −15 °C wird also verlängert. *Vorlauf max* begrenzt das Ergebnis wie gewohnt.
+2. **Außerhalb der Punkte.** Links von Punkt 1 und rechts von Punkt 4 läuft die Kurve **geradlinig** weiter, mit der Steigung, die sie am Randpunkt hat. Bei −20 °C außen und Punkt 1 bei −15 °C wird also verlängert. *Regelkreis Vorlauf max* begrenzt das Ergebnis wie gewohnt.
 
 3. **Raumsoll.** Die Punkte gelten für **Raumsoll 20 °C**. Liegt das wirksame Raumsoll darüber oder darunter, verschiebt sich die ganze Kurve um *Raumsoll-Einfluss × Abweichung*. Das gilt auch für die **Absenkung**: Mit 4 K Absenkung (Raumsoll 16 °C) und 1,8 K/K liegt die Kurve 7,2 K tiefer.
    Bei der Formel wirkt das Raumsoll nicht überall gleich stark, sondern bei Kälte etwas stärker als bei mildem Wetter. Bei den Stützpunkten ist es bewusst ein fester Wert, damit die Wirkung leicht nachvollziehbar bleibt. Richtwerte: Heizkörper 1,5–2 K/K, Fußbodenheizung 1–1,5 K/K. *Aus Formel übernehmen* setzt den passenden Wert für die aktuelle Neigung.
 
 4. **Niveau.** Das Niveau (`shift`) aus *Heizkurve & Grenzen* wirkt zusätzlich und verschiebt die Kurve parallel, genau wie bei der Formel. So kann man die ganze Kurve kurz anheben, ohne die vier Punkte anzufassen.
 
-Danach geht es weiter wie bei der Formel: Begrenzung auf *Vorlauf min/max*, Raumaufschaltung, Rücklaufbegrenzung, Heizgrenze und Frostschutz.
+Danach geht es weiter wie bei der Formel: Begrenzung auf *Regelkreis Vorlauf min/max*, Raumaufschaltung, Rücklaufbegrenzung, Heizgrenze und Frostschutz.
 
 **Die Neigung** (`slope`) hat bei *4 Stützpunkte* keine Wirkung. Das Eingabefeld ist dann gesperrt; der Wert bleibt aber gespeichert und gilt wieder, sobald man auf *Formel* zurückschaltet. Umgekehrt bleiben die Punkte bei *Formel* gespeichert.
 
@@ -637,14 +670,14 @@ Zurück zur Formel: *Kurvenart* auf *Formel (Neigung / Niveau)* stellen und spei
 
 Mit **Heizkurve einstellen** unter der Grafik erscheinen bei der Kurvenart *4 Stützpunkte* vier Griffe **P1 … P4**:
 
-- **Nach oben oder unten ziehen** ändert den Vorlauf des Punkts.
+- **Nach oben oder unten ziehen** ändert den Regelkreis-Vorlauf des Punkts.
 - **Nach links oder rechts ziehen** ändert seine Außentemperatur. Ein Punkt bleibt dabei mindestens 2 K von seinen Nachbarn entfernt und innerhalb der Grafik (−20 … +20 °C); weiter außen liegende Punkte lassen sich als Zahl eingeben.
 - Beide Werte rasten auf **0,5 °C**.
 - Liegen zwei Punkte dicht beieinander, wird der Punkt genommen, der dem Finger oder Mauszeiger am nächsten liegt.
 - **Ziehen an der Kurve selbst** (nicht an einem Punkt) verschiebt sie parallel und ändert nur das Niveau.
-- Über jedem Punkt steht, was die Kurve dort liefert, z. B. `P2 −5°: 46,6 °C`. Die Beschriftungen stehen abwechselnd über und unter den Punkten, damit sie sich nicht überdecken. Liegt ein Wert über *Vorlauf max* oder unter *Vorlauf min*, steht dabei, worauf begrenzt wird.
+- Über jedem Punkt steht, was die Kurve dort liefert, z. B. `P2 −5°: 46,6 °C`. Die Beschriftungen stehen abwechselnd über und unter den Punkten, damit sie sich nicht überdecken. Liegt ein Wert über *Regelkreis Vorlauf max* oder unter *Regelkreis Vorlauf min*, steht dabei, worauf begrenzt wird.
 - Unter der Grafik stehen alle vier Punkte bezogen auf **Raumsoll 20 °C** (das sind die Werte, die gespeichert werden), dazu das Niveau.
-- Die Beschriftungen in der Grafik zeigen dagegen den Vorlauf beim **gerade wirksamen** Raumsoll mit Niveau. Ist die Absenkung aktiv oder steht das Raumsoll nicht auf 20 °C, unterscheiden sich die beiden Angaben um *Raumsoll-Einfluss × Abweichung*.
+- Die Beschriftungen in der Grafik zeigen dagegen den Regelkreis-Vorlauf beim **gerade wirksamen** Raumsoll mit Niveau. Ist die Absenkung aktiv oder steht das Raumsoll nicht auf 20 °C, unterscheiden sich die beiden Angaben um *Raumsoll-Einfluss × Abweichung*.
 - **Übernehmen** speichert Punkte und Niveau, **Zurück auf vorher** stellt den alten Stand her, **Abbrechen** beendet ohne Änderung. Die bisherige Kurve bleibt beim Ziehen grau gestrichelt sichtbar.
 
 #### Feinabstimmung
@@ -668,7 +701,7 @@ Wie bei der Formel gilt: kleine Schritte (1–2 K), nur einen Punkt auf einmal, 
 |---|---|---|
 | Kurvenart | Formel | Formel |
 | Punkte Außen °C | −15 / −5 / +5 / +15 | −15 / −5 / +5 / +15 |
-| Punkte Vorlauf °C | 55,1 / 46,6 / 37,6 / 26,7 | 32,3 / 29,3 / 26,2 / 22,3 |
+| Punkte Regelkreis-Vorlauf °C | 55,1 / 46,6 / 37,6 / 26,7 | 32,3 / 29,3 / 26,2 / 22,3 |
 | Raumsoll-Einfluss | 1,8 K/K | 1,3 K/K |
 
 Wer nach dem Laden eines Profils auf *4 Stützpunkte* umschaltet, bekommt also die Profilkurve als Startpunkt. Das Profil **GLW8** speichert Kurvenart, Punkte und Raumsoll-Einfluss mit. Ein GLW8-Profil, das mit einer älteren Version gespeichert wurde, enthält diese Werte noch nicht; beim Laden bleiben sie dann unverändert. Jede Änderung an Kurvenart oder Punkten setzt das Profil auf „angepasst“.
@@ -678,7 +711,7 @@ Wer nach dem Laden eines Profils auf *4 Stützpunkte* umschaltet, bekommt also d
 - **Kühlen:** Die Stützpunkte betreffen nur das Heizen. Beim Kühlen gilt weiter die Kühlkurve mit den Punkten A und B.
 - **Fester Sollwert, Handbetrieb, Aus:** Dort wird keine Heizkurve verwendet.
 - **CSV-Liste der Heizkurve:** Sie rechnet mit derselben Funktion wie die Regelung. Im Kopf stehen die Kurvenart und bei *4 Stützpunkte* die vier Punkte und der Raumsoll-Einfluss statt der Neigung.
-- **Ereignisprotokoll:** Jede Änderung wird mit dem Namen des Felds sowie altem und neuem Wert eingetragen, z. B. *Web: Punkt 3: Vorlauf °C* mit beiden Werten.
+- **Ereignisprotokoll:** Jede Änderung wird mit dem Namen des Felds sowie altem und neuem Wert eingetragen, z. B. *Web: Punkt 3: Regelkreis Vorlauf °C* mit beiden Werten.
 - **Werkseinstellungen:** setzen auch die Kurvenart auf *Formel* und die Punkte auf die Werte oben zurück.
 
 #### Über MQTT, REST-API und Home Assistant
@@ -702,9 +735,9 @@ Für Home Assistant und Modbus gibt es bewusst **keine eigenen Entitäten bzw. R
 
 ### Heizkurvengrafik
 
-Die Grafik steht ganz oben im Reiter *Heizkurve*, direkt über den Einstellungen. Sie zeigt die Kurve über der Außentemperatur von −20 °C bis +20 °C, dazu den aktuellen Arbeitspunkt (Sollwert orange, gemessener Vorlauf blau) und die Heizgrenze. Waagrechte Rasterlinien liegen alle 5 °C, beschriftet alle 10 °C.
+Die Grafik steht ganz oben im Reiter *Heizkurve*, direkt über den Einstellungen. Sie zeigt die Kurve über der Außentemperatur von −20 °C bis +20 °C, dazu den aktuellen Arbeitspunkt (Sollwert orange, gemessener Regelkreis-Vorlauf blau) und die Heizgrenze. Waagrechte Rasterlinien liegen alle 5 °C, beschriftet alle 10 °C.
 
-**Stützpunkte:** Bei der Kurvenart *4 Stützpunkte* sind die vier Punkte in der Grafik markiert: ein Ring auf der Kurve, darüber der Name **P1 … P4** und eine dünne gestrichelte Linie hinunter zur Außentemperatur-Achse. So sieht man auf einen Blick, wo die Kurve festgelegt ist und wo sie dazwischen gerechnet wird. Der Ring sitzt auf dem gerade gültigen Vorlaufwert, also mit wirksamem Raumsoll, Niveau und begrenzt auf *Vorlauf min/max*. Fährt man mit Maus oder Finger in die Nähe eines Punkts (±0,75 °C), springt die Werteanzeige genau auf ihn und nennt ihn, z. B. „Stützpunkt P2 · Außen −5,0 °C“. Liegt ein Punkt außerhalb von −20 … +20 °C, wird er nicht gezeichnet. Bei der Kurvenart *Formel* gibt es keine Markierungen.
+**Stützpunkte:** Bei der Kurvenart *4 Stützpunkte* sind die vier Punkte in der Grafik markiert: ein Ring auf der Kurve, darüber der Name **P1 … P4** und eine dünne gestrichelte Linie hinunter zur Außentemperatur-Achse. So sieht man auf einen Blick, wo die Kurve festgelegt ist und wo sie dazwischen gerechnet wird. Der Ring sitzt auf dem gerade gültigen Vorlaufwert, also mit wirksamem Raumsoll, Niveau und begrenzt auf *Regelkreis Vorlauf min/max*. Fährt man mit Maus oder Finger in die Nähe eines Punkts (±0,75 °C), springt die Werteanzeige genau auf ihn und nennt ihn, z. B. „Stützpunkt P2 · Außen −5,0 °C“. Liegt ein Punkt außerhalb von −20 … +20 °C, wird er nicht gezeichnet. Bei der Kurvenart *Formel* gibt es keine Markierungen.
 
 **Skala einstellbar:** Rechts über der Grafik wählt man mit *Skala bis* den Höchstwert der Vorlaufachse: **40, 50, 60, 70 oder 80 °C** (Werkseinstellung 60 °C). Für eine Fußbodenheizung passt meist 40 oder 50 °C, für Heizkörper 60 bis 80 °C. Die Auswahl wird sofort im Regler gespeichert (Einstellung `chartMax`). Sie gilt damit auf allen Geräten und bleibt nach einem Neustart erhalten. Sie betrifft nur die Anzeige, nicht die Regelung, und ändert das Heizungsprofil nicht. Über MQTT oder die REST-API lässt sich jeder Wert von 40 bis 80 setzen, z. B. `…/set/chartMax 55`.
 
@@ -720,7 +753,7 @@ Im Reiter *Heizkurve* lässt sich die Kurve direkt in der Grafik einstellen, sta
 4. Zum Vergleich bleibt die bisherige Kurve grau gestrichelt sichtbar. Unter der Grafik stehen die neuen Werte für Neigung und Niveau, daneben die bisherigen.
 5. **Übernehmen** speichert die neue Kurve. **Zurück auf vorher** stellt die alten Werte wieder her, **Abbrechen** beendet das Einstellen ohne Änderung.
 
-Gerechnet wird mit derselben Formel wie in der Regelung. Neigung wird auf 0,01, Niveau auf 0,1 K gerundet und auf die erlaubten Bereiche begrenzt (Neigung 0,1–4,0, Niveau −15 bis +15 K). Liegt ein Griffpunkt über *Vorlauf max* oder unter *Vorlauf min*, zeigt die Beschriftung, auf welchen Wert dort begrenzt wird. Die Kurve gilt für den aktuell wirksamen Raumsollwert, bei aktiver Absenkung also für den abgesenkten.
+Gerechnet wird mit derselben Formel wie in der Regelung. Neigung wird auf 0,01, Niveau auf 0,1 K gerundet und auf die erlaubten Bereiche begrenzt (Neigung 0,1–4,0, Niveau −15 bis +15 K). Liegt ein Griffpunkt über *Regelkreis Vorlauf max* oder unter *Regelkreis Vorlauf min*, zeigt die Beschriftung, auf welchen Wert dort begrenzt wird. Die Kurve gilt für den aktuell wirksamen Raumsollwert, bei aktiver Absenkung also für den abgesenkten.
 
 **Bei der Kurvenart „4 Stützpunkte“** liegen statt der zwei Griffe vier frei ziehbare Griffe P1 … P4 auf den Stützpunkten; Einzelheiten unter [In der Grafik ziehen](#in-der-grafik-ziehen).
 
@@ -737,15 +770,15 @@ Damit beim Ziehen mit dem Finger die Seite nicht scrollt, nimmt die Grafik nur i
 - **Dateiname:** enthält Datum und Uhrzeit, z. B. `Heizkurve_2026-10-16_2318.csv`.
 
 **Kopfzeilen:**
-- **Einstellungen:** Profil, Raumsollwert Komfort/Absenkung, Kurvenart, Neigung bzw. die vier Stützpunkte mit Raumsoll-Einfluss, Niveau, Vorlauf min/max, Heizgrenze, Raumaufschaltung, Rücklaufbegrenzung.
-- **Zustand jetzt:** Betriebsart, Absenkbetrieb aktiv/nicht aktiv, Außentemperatur gemessen und gedämpft, Raumtemperatur und Raumkorrektur, Rücklauf und Rücklaufbegrenzung, Heizbetrieb, Vorlauf-Soll und Vorlauf-Ist.
+- **Einstellungen:** Profil, Raumsollwert Komfort/Absenkung, Kurvenart, Neigung bzw. die vier Stützpunkte mit Raumsoll-Einfluss, Niveau, Regelkreis Vorlauf min/max, Heizgrenze, Raumaufschaltung, Rücklaufbegrenzung.
+- **Zustand jetzt:** Betriebsart, Absenkbetrieb aktiv/nicht aktiv, Außentemperatur gemessen und gedämpft, Raumtemperatur und Raumkorrektur, Regelkreis-Rücklauf und Rücklaufbegrenzung, Heizbetrieb, Vorlauf-Soll und Vorlauf-Ist.
 
 **Tabelle** für Außentemperaturen von −25 °C bis +25 °C in 1-K-Schritten:
 
 | Spalte | Inhalt |
 |---|---|
 | Außentemperatur °C | −25 … +25 |
-| Vorlauf-Soll Komfort °C | Heizkurve mit Raumsollwert, begrenzt auf Vorlauf min/max |
+| Vorlauf-Soll Komfort °C | Heizkurve mit Raumsollwert, begrenzt auf Regelkreis Vorlauf min/max |
 | Vorlauf-Soll Absenkung °C | Heizkurve mit Raumsollwert − Absenkung, begrenzt |
 | Vorlauf-Soll jetzt °C | wie im Regelzyklus: Kurve mit dem gerade gültigen Raumsollwert (Komfort oder Absenkung), begrenzt, plus aktuelle Raumkorrektur (nur in *Automatik*), minus aktuelle Rücklaufbegrenzung, erneut begrenzt |
 | Kurve ohne Begrenzung (Komfort) °C | zeigt, wo die Min/Max-Grenzen eingreifen |
@@ -762,16 +795,16 @@ Damit beim Ziehen mit dem Finger die Seite nicht scrollt, nimmt die Grafik nur i
 
 Oben im Reiter *Heizkurve* lassen sich zwei vorbereitete Parametersätze laden. Eine Tabelle vergleicht die aktuellen Werte mit beiden Profilen, übereinstimmende Werte sind grün markiert.
 
-**Erklärungen in der Tabelle:** Die Parameternamen sind gepunktet unterstrichen. Fährt man mit der Maus darüber, tippt mit dem Finger darauf oder steuert sie mit der Tab-Taste an, erscheint ein kleines Kästchen mit einer kurzen Erklärung, z. B. bei *Kp*: „Verstärkung des Reglers: Stelländerung in % je Kelvin Abweichung. Größer = schneller, aber Neigung zum Pendeln.“ Auf dem Smartphone bleibt das Kästchen stehen, bis man woanders hintippt. Dieselben Erklärungen gibt es an den Eingabefeldern der Karten *Heizkurve & Grenzen* und *Raumtemperatur* sowie im Reiter *Regler*, dort zusätzlich für *Rücklauf max*, *Rücklaufbegrenzung*, *Raumtemperatur berücksichtigen*, *Raumabschaltung*, *Stellantrieb* und *Relais Low-aktiv*. Ein Klick auf den Namen zeigt nur die Erklärung und schaltet kein Häkchen um.
+**Erklärungen in der Tabelle:** Die Parameternamen sind gepunktet unterstrichen. Fährt man mit der Maus darüber, tippt mit dem Finger darauf oder steuert sie mit der Tab-Taste an, erscheint ein kleines Kästchen mit einer kurzen Erklärung, z. B. bei *Kp*: „Verstärkung des Reglers: Stelländerung in % je Kelvin Abweichung. Größer = schneller, aber Neigung zum Pendeln.“ Auf dem Smartphone bleibt das Kästchen stehen, bis man woanders hintippt. Dieselben Erklärungen gibt es an den Eingabefeldern der Karten *Heizkurve & Grenzen* und *Raumtemperatur* sowie im Reiter *Regler*, dort zusätzlich für *Regelkreis Rücklauf max*, *Rücklaufbegrenzung*, *Raumtemperatur berücksichtigen*, *Raumabschaltung*, *Stellantrieb* und *Relais Low-aktiv*. Ein Klick auf den Namen zeigt nur die Erklärung und schaltet kein Häkchen um.
 
 | Parameter | Radiatorheizung | Fußbodenheizung |
 |---|---|---|
-| Vorlauf bei −10 / 0 / +10 °C außen (Raum 20 °C) | ≈ 51 / 42 / 32 °C | ≈ 31 / 28 / 24 °C |
+| Regelkreis-Vorlauf bei −10 / 0 / +10 °C außen (Raum 20 °C) | ≈ 51 / 42 / 32 °C | ≈ 31 / 28 / 24 °C |
 | Neigung / Niveau | 1,0 / 0 K | 0,35 / 0 K |
 | Kurvenart | Formel | Formel |
-| Stützpunkte Vorlauf bei −15 / −5 / +5 / +15 °C | 55,1 / 46,6 / 37,6 / 26,7 °C | 32,3 / 29,3 / 26,2 / 22,3 °C |
+| Stützpunkte Regelkreis-Vorlauf bei −15 / −5 / +5 / +15 °C | 55,1 / 46,6 / 37,6 / 26,7 °C | 32,3 / 29,3 / 26,2 / 22,3 °C |
 | Raumsoll-Einfluss (Stützpunkte) | 1,8 K/K | 1,3 K/K |
-| Vorlauf min / max | 25 / 60 °C | 20 / 40 °C |
+| Regelkreis Vorlauf min / max | 25 / 60 °C | 20 / 40 °C |
 | Heizgrenze / Frostschutz | 17 / 3 °C | 16 / 3 °C |
 | Fester Vorlauf-Sollwert | 45 °C | 30 °C |
 | Dämpfung Außentemperatur | 45 min | 180 min |
@@ -785,7 +818,7 @@ Oben im Reiter *Heizkurve* lassen sich zwei vorbereitete Parametersätze laden. 
 **Warum die Werte unterschiedlich sind:**
 - **Heizkörper** reagieren schnell und brauchen höhere Temperaturen. Deshalb gibt es eine steilere Kurve, einen zügigeren Regler und eine Absenkung, die sich lohnt.
 - **Fußbodenheizungen** speichern viel Wärme im Estrich. Deshalb gibt es eine flache Kurve, einen langsamen Regler, eine stark gedämpfte Außentemperatur und eine kleine Absenkung.
-- **Estrichschutz:** Bei Fußbodenheizung begrenzt *Vorlauf max* 40 °C den Vorlauf, der Übertemperaturschutz greift ab 45 °C. Ein Hardware-STB ist trotzdem Pflicht.
+- **Estrichschutz:** Bei Fußbodenheizung begrenzt *Regelkreis Vorlauf max* 40 °C den Regelkreis-Vorlauf, der Übertemperaturschutz greift ab 45 °C. Ein Hardware-STB ist trotzdem Pflicht.
 
 **Was ein Profil nicht ändert:**
 - Raumsollwert, Betriebsart, Zeitprogramm, Fühler, Rücklaufbegrenzung und Netzwerk bleiben erhalten.
@@ -835,7 +868,7 @@ Werkseinstellung des Wochenprogramms:
 - **Keine Heizzeit über Mitternacht:** Das Ende muss nach dem Beginn liegen. Für eine Heizzeit über Mitternacht am Folgetag eine weitere ab 00:00 anlegen.
 - **Ende 24:00** ist erlaubt.
 - **Kopieren:** Schaltflächen übertragen Montag auf Di–Fr, Montag auf Di–So, Samstag auf Sonntag und Sonntag auf Feiertag. Kopiert wird nur in die Tabelle; gespeichert wird mit *Wochenprogramm speichern*.
-- **Uhrzeit:** Sie kommt per NTP aus dem Internet (Zeitzone Mitteleuropa mit Sommerzeit). Ohne gültige Uhrzeit wird nicht abgesenkt.
+- **Uhrzeit:** Sie kommt per NTP (Zeitzone Mitteleuropa mit Sommerzeit), ersatzweise vom Browser (siehe [IP-Adresse und Uhrzeit](#ip-adresse-und-uhrzeit)). Ohne gültige Uhrzeit wird nicht abgesenkt.
 
 Die Übersicht zeigt den aktuellen Stand, z. B. „Komfort bis 22:00“ oder „Absenkung bis 06:00“, an Feiertagen mit dem Zusatz „· Feiertag“.
 
@@ -873,26 +906,37 @@ heizung/hk1/set   {"schedMode":1,"week":[["06:00-08:00","16:00-22:00",""],["06:0
 
 ## Temperaturfühler
 
-### Anschlussart
+### Drei Busse (ab 2.10.0)
 
-Im Reiter *Fühler* wählst du unter **Anschlussart der Fühler**, wie die DS18B20 angeschlossen sind. Die Umschaltung wirkt sofort, ein Neustart ist nicht nötig.
+Alle DS18B20 hängen an **drei 1-Wire-Bussen**: **Bus 1 = GPIO 4**, **Bus 2 = GPIO 13**, **Bus 3 = GPIO 14**. An jeden Bus dürfen beliebig viele Fühler parallel, je Bus mit einem 4,7-kΩ-Pull-up am Regler. Jeder DS18B20 hat eine weltweit eindeutige Seriennummer – darüber weiß der Regler, welcher Fühler welcher ist.
 
-| Anschlussart | Verdrahtung | Zuordnung |
-|---|---|---|
-| **Eigene Pins je Fühler** (Werkseinstellung) | Vorlauf GPIO 4, Rücklauf GPIO 13, Außen GPIO 14, Raum GPIO 27; je ein 4,7-kΩ-Pull-up | nicht nötig – es zählt der Pin; hängen mehrere an einem Pin, wird der erste verwendet und das angezeigt |
-| **Gemeinsamer Bus an GPIO 4** | alle DS18B20 parallel an GPIO 4; ein 4,7-kΩ-Pull-up | über die Seriennummer des DS18B20 |
+Je Fühler (Regelkreis Vorlauf, Regelkreis Rücklauf, Außen, Raum, Puffer, Heizung Vorlauf, Heizung Rücklauf, Wärmequelle) gibt es im Reiter *Fühler*:
 
-**Vorteile:**
-- **Eigene Pins:** Jeder Fühler ist eindeutig über den Pin bestimmt. Ein Kurzschluss oder defekter Fühler stört die anderen nicht.
-- **Gemeinsamer Bus:** weniger Verdrahtung und nur ein Widerstand. GPIO 13, 14 und 27 bleiben frei.
+| Einstellung | Bedeutung |
+|---|---|
+| **Herkunft** | Bus, MQTT/Modbus oder Bluetooth – auch mit Ersatz bei Ausfall (siehe unten) |
+| **Bus** | Bus 1, 2 oder 3 – an welchem Bus der DS18B20 hängt |
+| **Seriennummer** | 16 Hex-Zeichen; leer = beim nächsten Suchen den ersten noch freien DS18B20 an diesem Bus übernehmen |
 
-**Zuordnung am gemeinsamen Bus:**
-- **Liste:** Bei gemeinsamem Bus erscheint im Reiter *Fühler* eine Liste aller an GPIO 4 gefundenen DS18B20 mit Seriennummer und aktueller Temperatur.
-- **Zuordnen:** Über die Auswahl ordnest du jeden Fühler einer Rolle zu (Vorlauf, Rücklauf, Außen, Raum) oder markierst ihn als „nicht verwendet“. Danach *Zuordnung speichern*.
+Werkseinstellung: Regelkreis Vorlauf und Puffer an Bus 1, Regelkreis Rücklauf, Heizung Vorlauf, Heizung Rücklauf und Wärmequelle an Bus 2, Außen und Raum an Bus 3. Regelkreis Vorlauf, Regelkreis-Rücklauf und Außen liegen damit an denselben Pins wie bei „eigenen Pins“ bis 2.9.
+
+**Zuordnen:**
+- **Liste:** Der Reiter *Fühler* zeigt in **DS18B20 an den Bussen** alle gefundenen Fühler mit Bus, Seriennummer und aktueller Temperatur.
+- **Zuordnen:** Je DS18B20 den Fühler wählen oder „nicht verwendet“, dann *Zuordnung speichern*. Dabei werden Seriennummer **und** Bus des Fühlers eingetragen.
 - **Erkennen:** Einen Fühler kurz in der Hand erwärmen, seine Temperatur steigt in der Liste.
-- **Automatik:** Rollen ohne Zuordnung werden beim Suchen automatisch in Fundreihenfolge belegt. Ab Werk ist das also schon eine Grundzuordnung, die du nur prüfen musst.
-- **Doppelbelegung:** Jede Rolle kann nur einem Fühler zugeordnet werden, die Weboberfläche verhindert Doppelbelegungen.
-- **Fühlertausch:** Wird ein Fühler getauscht, hat der neue eine andere Seriennummer. Dann die Zuordnung neu speichern oder die Rolle leeren, damit sie automatisch belegt wird.
+- **Automatik:** Fühler ohne Seriennummer übernehmen beim Suchen den ersten freien DS18B20 an ihrem Bus. Ein Fühler, der „nicht verwendet“ sein soll, an einem Bus, an dem noch ein Fühler ohne Zuordnung eingestellt ist, wird deshalb übernommen – dort dann alle zuordnen.
+- **Umgesteckt:** Findet der Regler eine bekannte Seriennummer an einem anderen Bus, verwendet er sie dort und trägt den neuen Bus ein (Eintrag im Ereignisprotokoll).
+- **Doppelbelegung:** Jeder Fühler kann nur einem DS18B20 zugeordnet werden, die Weboberfläche verhindert Doppelbelegungen.
+- **Fühlertausch:** Ein neuer DS18B20 hat eine andere Seriennummer. Dann die Zuordnung neu speichern oder die Seriennummer leeren, damit er automatisch übernommen wird.
+- **Neu suchen:** Die Busse werden beim Start, mit *Fühler neu suchen* und jede Minute durchsucht, solange ein Fühler fehlt.
+
+**Umstieg von 2.9 und älter:** Die gespeicherte Anschlussart wird übernommen:
+
+| bisher | jetzt |
+|---|---|
+| eigene Pins | Regelkreis Vorlauf (GPIO 4) → Bus 1, Regelkreis Rücklauf (13) → Bus 2, Außen (14) → Bus 3 – unverändert verdrahtet. **Raum (GPIO 27), Puffer (22), Heizung Vorlauf (21) und Heizung Rücklauf (5) an einen der drei Busse umstecken** – ihr Pull-up entfällt dann, er sitzt ja schon am Bus |
+| gemeinsamer Bus an GPIO 4 | alle Fühler an Bus 1, Seriennummern bleiben – nichts zu tun |
+| zwei Busse | Regelkreis Vorlauf und Regelkreis Rücklauf an Bus 1 (GPIO 4), Außen an Bus 3 (GPIO 14); Heizung Vorlauf/Rücklauf (GPIO 21) sowie Raum (27) und Puffer (22) an einen Bus umstecken – die Seriennummern sind bekannt, der Regler findet sie an jedem Bus |
 
 ### Herkunft je Fühler
 
@@ -900,22 +944,24 @@ Im Reiter *Fühler* stellst du für jeden Fühler einzeln ein, woher der Wert ko
 
 | Herkunft | Verhalten |
 |---|---|
-| Fühler am Pin | nur der DS18B20 am Pin (Werkseinstellung) |
-| MQTT / Modbus | nur der externe Wert; der Pin bleibt unbenutzt |
-| Pin, bei Ausfall MQTT | der DS18B20 hat Vorrang; fehlt oder versagt er, wird automatisch der externe Wert verwendet |
-| Bluetooth (RuuviTag / Shelly BLU) | nur Außen und Raum: nur der Bluetooth-Sensor (siehe [Bluetooth-Sensoren](#bluetooth-sensoren-ruuvitag-shelly-blu-ht)) |
-| Bluetooth, bei Ausfall MQTT | nur Außen und Raum: der Bluetooth-Sensor hat Vorrang, sonst der MQTT-/Modbus-Wert |
-| Pin, bei Ausfall Bluetooth | nur Außen und Raum: der DS18B20 hat Vorrang, sonst der Bluetooth-Sensor |
+| Fühler am Bus | nur der DS18B20 am eingestellten Bus (Werkseinstellung) |
+| MQTT / Modbus | nur der externe Wert; kein DS18B20 |
+| Bus, bei Ausfall MQTT | der DS18B20 hat Vorrang; fehlt oder versagt er, wird automatisch der externe Wert verwendet |
+| Bluetooth (RuuviTag / Shelly BLU) | nur der Bluetooth-Sensor (siehe [Bluetooth-Sensoren](#bluetooth-sensoren-ruuvitag-shelly-blu-ht)) |
+| Bluetooth, bei Ausfall MQTT | der Bluetooth-Sensor hat Vorrang, sonst der MQTT-/Modbus-Wert |
+| Bus, bei Ausfall Bluetooth | der DS18B20 hat Vorrang, sonst der Bluetooth-Sensor |
+
+Seit 2.10.0 sind alle Herkünfte für **jeden** Fühler wählbar (bis 2.9 Bluetooth nur für Außen und Raum). Für Regelkreis-Vorlauf und Regelkreis-Rücklauf ist ein DS18B20 am Rohr trotzdem die bessere Wahl: Funk-Sensoren senden nur alle paar Sekunden bis Minuten, die Mischerregelung braucht schnelle Werte. Die Karte *Herkunft und Korrektur je Fühler* hat seit 2.10.1 einen Kasten je Fühler; in seiner Überschrift stehen der aktuelle Wert und woher er kommt (rot bei Störung). Die Felder im Formular richten sich nach der Herkunft: Bus und Seriennummer nur bei DS18B20, Topic und JSON-Feld nur bei MQTT, MAC und Shelly-Schlüssel nur bei Bluetooth.
 
 Oben im Reiter zeigt eine Tabelle je Fühler den Zustand:
 - ob ein DS18B20 gefunden bzw. zugeordnet wurde
-- den Pin-Wert
+- den Wert vom Bus
 - den MQTT-Wert und wie alt er ist
 - welcher Wert gerade verwendet wird (grün)
 
 ### Bluetooth-Sensoren (RuuviTag, Shelly BLU H&T)
 
-Der Regler empfängt Funk-Thermometer direkt über das Bluetooth des ESP32 – ohne Home Assistant, ohne Gateway und ohne Kopplung; er hört nur zu (passiver Empfang). MQTT bleibt daneben voll nutzbar. Zwei Sensorarten werden erkannt, beide für **Außen** und **Raum**:
+Der Regler empfängt Funk-Thermometer direkt über das Bluetooth des ESP32 – ohne Home Assistant, ohne Gateway und ohne Kopplung; er hört nur zu (passiver Empfang). MQTT bleibt daneben voll nutzbar. Zwei Sensorarten werden erkannt; zuordnen lassen sie sich seit 2.10.0 jedem Fühler, gedacht vor allem für **Außen** und **Raum**:
 
 | | RuuviTag (auch Pro) – seit 2.1.0 | Shelly BLU H&T (SBHT-003C) – seit 2.6.0 |
 |---|---|---|
@@ -925,9 +971,9 @@ Der Regler empfängt Funk-Thermometer direkt über das Bluetooth des ESP32 – o
 | Batteriewarnung | unter 2,5 V | unter 15 % |
 
 **Einrichten:**
-1. Im Reiter *Fühler*, Karte **Bluetooth-Sensoren (RuuviTag, Shelly BLU H&T)**, auf *Bluetooth-Suche starten (10 min)* klicken. Es erscheinen alle empfangenen Sensoren mit MAC-Adresse, Art, Temperatur, Feuchte, Luftdruck, Batterie und Empfangsstärke, der stärkste oben. Ein RuuviTag erscheint nach wenigen Sekunden, ein **Shelly erst nach bis zu einer Minute** – schneller geht es mit einem Druck auf seine Taste.
+1. Im Reiter *Fühler*, Karte **Bluetooth-Sensoren (RuuviTag, Shelly BLU H&T)**, auf *Bluetooth-Suche starten (10 min)* klicken. Es erscheinen alle empfangenen Sensoren mit MAC-Adresse, Art, Temperatur, Feuchte, Luftdruck, Batterie und Empfangsstärke – in der Reihenfolge, in der sie erkannt wurden (neue unten; die Liste springt beim Auffrischen nicht). Ein RuuviTag erscheint nach wenigen Sekunden, ein **Shelly erst nach bis zu einer Minute** – schneller geht es mit einem Druck auf seine Taste.
 2. Den richtigen Sensor erkennen: kurz in der Hand erwärmen – seine Temperatur steigt (beim Shelly mit bis zu einer Minute Verzögerung).
-3. **für Außen** bzw. **für Raum** klicken. Die MAC-Adresse wird beim Fühler eingetragen und die Herkunft auf *Bluetooth (RuuviTag / Shelly BLU)* gestellt (eine schon gewählte Bluetooth-Variante bleibt). Die MAC-Adresse lässt sich auch von Hand im Formular *Herkunft und Korrektur je Fühler* eintragen.
+3. In der Zeile des Sensors den Fühler wählen (z. B. *Außen*) und **zuordnen** klicken. Die MAC-Adresse wird beim Fühler eingetragen und die Herkunft auf *Bluetooth (RuuviTag / Shelly BLU)* gestellt (eine schon gewählte Bluetooth-Variante bleibt). Die MAC-Adresse lässt sich auch von Hand im Formular *Herkunft und Korrektur je Fühler* eintragen.
 4. Soll ein Ersatz einspringen, unter *Herkunft* „Bluetooth, bei Ausfall MQTT“ oder „Pin, bei Ausfall Bluetooth“ wählen.
 
 **Shelly mit Verschlüsselung:** In der Shelly-App lässt sich für den BLU H&T eine Verschlüsselung einschalten; die App zeigt dann einen Schlüssel aus 32 Hex-Zeichen. Ein solcher Shelly erscheint in der Liste mit „verschlüsselt – Schlüssel beim Fühler eintragen“. So geht es weiter:
@@ -939,6 +985,7 @@ Der Schlüssel wird wie ein Passwort behandelt: Er wird nur als `********` angez
 
 **Im Betrieb:**
 - Der Empfang läuft automatisch, sobald Außen oder Raum einen Bluetooth-Sensor verwenden. Er hört seit 2.6.0 alle 160 ms für **80 ms** zu (vorher 40 ms) – der Shelly sendet nur selten, ein kürzeres Fenster würde zu viele seiner Pakete verpassen. Das WLAN läuft dabei weiter flüssig.
+- **Doppelfilter (ab 2.21.1):** Der Funkteil meldet jedes Gerät je Suchlauf nur einmal; der Suchlauf beginnt alle 20 s neu. Werte von RuuviTag und Shelly sind damit höchstens etwa 20 s alt (der Shelly sendet ohnehin selten). Bis 2.21.0 kam jedes Paket jedes Geräts in der Umgebung (Handys, Uhren, Kopfhörer, Nachbarn – oft Hunderte je Sekunde), und die Bluetooth-Bibliothek legte für jedes Speicher an; bei knappem Speicher führte das zum Absturz im Task `nimble_host`. Der Filter merkt sich bis zu 20 Geräte; sind mehr in der Nähe, kommen einzelne öfter, die Last bleibt trotzdem viel kleiner.
 - Die Werte werden alle 2 s mit den DS18B20 übernommen. Korrekturwert und **Zeitüberwachung** gelten wie bei MQTT (Außen/Raum einstellbar, Standard 30 min). Für den Shelly nicht unter 10 min einstellen: Er sendet nur einmal pro Minute, und einzelne Pakete gehen im Funk verloren. Meldet sich der Sensor nicht mehr, steht das im Ereignisprotokoll und – bei den Varianten mit Ersatz – springt dieser ein.
 - **Raumfeuchte:** Ist beim Raum ein Bluetooth-Sensor gewählt, liefert er auch die Raumfeuchte für den Taupunktschutz beim Kühlen und für einen Entfeuchter an Relais K4.
 - **Batterie:** Unter der Grenze (2,5 V bzw. 15 %) steht einmalig eine Warnung im Ereignisprotokoll; in der Liste wird der Wert rot.
@@ -957,8 +1004,8 @@ Es gibt drei Wege, die sich auch kombinieren lassen:
   - Bei **JSON** (`{"temperature":21.4,"humidity":48}`) steht unter *JSON-Feld* der Feldname, standardmäßig `temperature`. Verschachtelte Felder werden mit Punkt getrennt, z. B. `DS18B20.Temperature` bei Tasmota.
   - Dasselbe Topic darf bei mehreren Fühlern eingetragen sein, z. B. mit verschiedenen JSON-Feldern.
   - Platzhalter (`+`, `#`) sind nicht erlaubt.
-- **MQTT-Befehl:** `heizung/hk1/set/flowTemp`, `…/returnTemp`, `…/outTemp` oder `…/roomTemp`, jeweils mit dem Wert als Nutzlast.
-- **Modbus:** Holding-Register 19 (Vorlauf), 20 (Rücklauf), 21 (Außen) und 17 (Raum), jeweils °C × 10.
+- **MQTT-Befehl:** `heizung/hk1/set/flowTemp`, `…/returnTemp`, `…/outTemp`, `…/roomTemp` oder `…/boilerTemp`, jeweils mit dem Wert als Nutzlast.
+- **Modbus:** Holding-Register 19 (Regelkreis-Vorlauf), 20 (Regelkreis-Rücklauf), 21 (Außen) und 17 (Raum), jeweils °C × 10.
 
 Externe Werte werden nur verwendet, wenn die Herkunft des Fühlers „MQTT / Modbus“ oder „Pin, bei Ausfall MQTT“ ist.
 
@@ -968,25 +1015,81 @@ Ein externer Wert muss regelmäßig neu kommen. Sonst wird er verworfen. Der Fü
 
 | Fühler | Zeitüberwachung |
 |---|---|
-| Vorlauf, Rücklauf | fest 2 Minuten |
+| Regelkreis-Vorlauf, Regelkreis-Rücklauf | fest 2 Minuten |
 | Außen, Raum | einstellbar, Standard 30 Minuten |
 
-**Vorlauf über MQTT** ist nur sinnvoll, wenn der Wert mindestens alle 10 Sekunden kommt. Der Regler arbeitet im 10–20-Sekunden-Takt und braucht aktuelle Werte, sonst schwingt der Vorlauf. Fällt der Vorlaufwert aus, fährt der Mischer zu. Für den Übertemperaturschutz ist ein Fühler direkt am Pin die sicherere Wahl.
+**Regelkreis-Vorlauf über MQTT** ist nur sinnvoll, wenn der Wert mindestens alle 10 Sekunden kommt. Der Regler arbeitet im 10–20-Sekunden-Takt und braucht aktuelle Werte, sonst schwingt der Regelkreis-Vorlauf. Fällt der Vorlaufwert aus, fährt der Mischer zu. Für den Übertemperaturschutz ist ein Fühler direkt am Pin die sicherere Wahl.
 
 ### Korrektur
 
-Je Fühler lässt sich ein Korrekturwert von −5 bis +5 K einstellen. Er gilt für Pin- und externe Werte.
+Je Fühler gibt es im Kasten des Fühlers das Feld **Korrektur** mit zwei Arten. Sie gilt für alle Herkünfte (Bus, MQTT/Modbus, Bluetooth).
+
+- **ein Wert** (wie bis 2.17): ein Korrekturwert von −5 bis +5 K für alle Temperaturen.
+- **3 Punkte (nicht linear)** (ab 2.18.0): für Fühler, deren Abweichung von der Temperatur abhängt. Je Punkt ein **Messwert** (Rohwert des Fühlers, −40 … 120 °C, ab Werk 20, 35 und 50 °C) und die **Korrektur** dort (−10 … +10 K, = Referenz − Messwert). Zwischen zwei Punkten wird die Korrektur geradlinig verteilt, unter dem ersten und über dem dritten Punkt gilt deren Korrektur unverändert weiter (kein Hochrechnen).
+
+| Rohwert | Punkte 20 / 35 / 50 °C mit +0,2 / +0,4 / +0,1 K | angezeigt |
+|---|---|---|
+| 15,0 °C | unter Punkt 1: +0,2 K | 15,2 °C |
+| 27,5 °C | halb zwischen +0,2 und +0,4 K: +0,3 K | 27,8 °C |
+| 42,5 °C | halb zwischen +0,4 und +0,1 K: +0,25 K | 42,75 °C |
+| 60,0 °C | über Punkt 3: +0,1 K | 60,1 °C |
+
+**Einmessen:** Fühler und ein genaues Referenzthermometer zusammen in ein Wasserbad (oder an dasselbe Rohr) bei etwa 20, 35 und 50 °C bringen. Im Kasten steht unter *Korrektur* „Messwert jetzt ohne Korrektur“ mit zwei Nachkommastellen; diesen Wert als *Messwert* eintragen und *Referenz − Messwert* als *Korrektur*. Die Punkte müssen nicht genau bei 20/35/50 °C liegen – für den Außenfühler etwa −10, 0 und +10 °C.
+
+**Prüfungen beim Speichern:** Die Messwerte werden aufsteigend mit mindestens 2 K Abstand gehalten (zu dichte nach oben geschoben). Die Korrektur darf je Kelvin Messwert höchstens um 0,9 K fallen, damit die angezeigte Temperatur mit der wirklichen immer steigt; sonst wird sie angehoben. In der Tabelle oben im Reiter *Fühler* steht bei aktiver Korrektur in der Spalte *Verwendet* der Rohwert in Klammern („41,2 °C (roh 40,87 °C)“), auch in `/api/sensors` als `raw`.
+
+**Einstellungen:** `calMode<Fühler>` (0 = ein Wert, 1 = 3 Punkte), `calT1…3<Fühler>` und `calK1…3<Fühler>`, z. B. `calModeFlow`, `calT2Flow`, `calK2Flow`; `off<Fühler>` bleibt für die Art *ein Wert*.
+
+### Pufferfühler
+
+Seit 2.7.0 gibt es einen fünften Fühler, **Puffer**. Er misst die Temperatur, die der Wärmeerzeuger an den Mischer liefert (Puffervorlauf, vor dem Mischer). Er ist **optional** – wie der Raumfühler: Fehlt er von Anfang an, ist das keine Störung.
+
+- **Anschluss:** DS18B20 an einem der drei Busse (ab Werk Bus 1, GPIO 4), Zuordnung über die Seriennummer. Fühler in eine Tauchhülse am Puffer oder als Anlegefühler gut wärmeleitend und isoliert an das Rohr zwischen Puffer und Mischer.
+- **Herkunft:** wie bei Regelkreis-Vorlauf und Regelkreis-Rücklauf *Fühler am Pin*, *MQTT / Modbus* oder *Pin, bei Ausfall MQTT* (kein Bluetooth). Über MQTT z. B. die Puffertemperatur aus Home Assistant (`…/set/boilerTemp` oder ein eigenes Topic), über Modbus Holding-Register 27. Zeitüberwachung wie bei Außen und Raum (einstellbar, Standard 30 min).
+- **Korrektur** wie bei allen Fühlern (ein Wert −5 … +5 K oder 3 Punkte, siehe [Korrektur](#korrektur)).
+- **Anzeige:** im Anlagenschema im Puffer (z. B. „68,4 °C“), im Smartphone-Raster als eigene Kachel (nur mit Wert), im Reiter *Fühler* als fünfte Zeile, im **Verlauf** als eigene Kurve „Puffer“ (auch im Wochenverlauf und in der CSV-Liste, letzte Spalte).
+- **Störung:** War der Fühler schon einmal da und fällt dann aus, oder ist die Herkunft *MQTT* und es kommt kein Wert, erscheint „Fühler Puffer“ in der Übersicht. Das zählt auch für die Home-Assistant-Entität *Störung* und die Sammelstörmeldung an Relais K4.
+- **Schnittstellen:** MQTT `…/boiler` und `boil` im JSON, Home Assistant Sensor *Puffertemperatur*, Modbus Input-Register 40 (Statusbits 2, Bit 9 = Fehler Pufferfühler).
+- **Weitere Fühler:** Für den Kreis zwischen Wärmequelle und Puffer gibt es seit 2.8.0 Heizung Vorlauf und Heizung Rücklauf (nächster Abschnitt). Im Status-JSON heißen sie `hflow`, `hret` (Fehler `errHflow`, `errHret`).
+- **Regelung:** Die Puffertemperatur wird derzeit **nur gemessen, angezeigt und aufgezeichnet** – sie beeinflusst Mischer, Pumpe und K4 nicht. Mögliche spätere Nutzung: Hinweis, wenn der Puffer kälter ist als der Vorlauf-Sollwert (Mischer kann den Sollwert nicht erreichen), Pumpe erst ab einer Mindest-Puffertemperatur (Pufferschutz bei Festbrennstoff), Wärmeanforderung K4 abhängig von der Puffertemperatur.
+
+### Heizung Vorlauf und Heizung Rücklauf
+
+Seit 2.8.0 gibt es zwei weitere optionale Fühler für den Kreis **zwischen Wärmequelle und Puffer**, hier **Heizkreis** genannt – im Unterschied zum **Regelkreis** hinter dem Mischer, den der Regler regelt (Fühler Regelkreis-Vorlauf und Regelkreis-Rücklauf):
+
+```
+Wärmequelle ──Heizung Vorlauf──▶ Puffer ──Puffervorlauf──▶ Mischer ──Vorlauf──▶ Haus
+(Holzkessel,◀─Heizung Rücklauf── (Puffer)◀──────────────── Bypass ◀──Rücklauf──
+ Wärmepumpe)        Heizkreis                               Regelkreis
+```
+
+- **Anschluss:** beide an einem der drei Busse (ab Werk Bus 2, GPIO 13), Zuordnung über die Seriennummer. Anlegefühler an den Leitungen zwischen Wärmequelle und Puffer, möglichst nah am Puffer, mit Wärmeleitpaste und Isolierung.
+- **Herkunft:** *Fühler am Pin*, *MQTT / Modbus* oder *Pin, bei Ausfall MQTT* – z. B. die Werte des Holzkessel-Reglers über MQTT (`…/set/heatFlowTemp`, `…/set/heatReturnTemp` oder eigenes Topic) bzw. Modbus (Holding-Register 28 und 29). Zeitüberwachung wie bei Außen, Raum und Puffer.
+- **Optional:** Fehlen die Fühler von Anfang an, ist das keine Störung. Fällt einer aus, nachdem er schon da war, erscheint „Fühler Heizung Vorlauf“ bzw. „Fühler Heizung Rücklauf“ (zählt auch für *Störung* und die Sammelstörmeldung K4).
+- **Anzeige:** Im Anlagenschema erscheint links vom Puffer die **Wärmequelle** mit beiden Temperaturen, der Leistung und (ab 2.16.1) der Spreizung unter Heizung RL; die Punkte in den Leitungen laufen, solange der Heizkreis läuft. Im Smartphone-Raster zwei Kacheln, im Reiter *Fühler* zwei Zeilen, im **Verlauf** die Kurven „Heizung VL“ und „Heizung RL“ (auch Wochenverlauf und CSV).
+- **Leistung:** mit dem **Volumenstrom Heizkreis**, siehe [Wärmemengenzählung](#wärmemengenzählung).
+- **Regelung:** Die Werte beeinflussen Mischer und Pumpe nicht; Heizung Vorlauf dient der Puffer-Ladepumpe (K4) als Ersatz, wenn kein Fühler *Wärmequelle* da ist.
+
+### Fühler Wärmequelle
+
+Ab 2.16.0 gibt es einen achten, optionalen Fühler **Wärmequelle** – z. B. in der Tauchhülse eines Holzkessels oder wasserführenden Kaminofens, am Vorlauf einer Wärmepumpe oder Solaranlage oder als Anlegefühler direkt am Ausgang der Wärmequelle. Er arbeitet wie alle anderen Fühler (Herkunft Bus / MQTT / Bluetooth mit Ersatzkombinationen, Seriennummer, Korrektur; Werkseinstellung Bus 2).
+
+- **Wofür:** Die K4-Funktion **Puffer-Ladepumpe** nimmt die Temperatur der Wärmequelle bevorzugt von diesem Fühler; ohne Wert ersatzweise von *Heizung Vorlauf*. Gegenüber Heizung Vorlauf hat er den Vorteil, dass er das Aufheizen auch bei stehender Pumpe sofort bemerkt.
+- **Anzeige:** im Anlagenschema als Zahl über dem Kasten *Wärmequelle* links vom Puffer; auf dem Smartphone als Kachel; im Reiter *Fühler*.
+- **Schnittstellen:** Status-JSON `source` (Fehler `errSource`), MQTT `…/heat_source_temp` und Home-Assistant-Sensor *Temperatur Wärmequelle*, externer Wert über `…/set/sourceTemp` oder eigenes Topic bzw. Modbus-Holding-Register 34; Messwert Input-Register 45, Fehler Statusbits 2 Bit 14. Zeitüberwachung externer Werte wie bei Puffer und Heizung. Einstellungen `srcSource`, `busSource`, `addrSource`, `topicSource` … (Suffix `Source`).
+- **Optional:** Fehlt er von Anfang an, ist das keine Störung; fällt er aus, nachdem er schon da war, erscheint „Fühler Wärmequelle“ (zählt auch für *Störung* und die Sammelstörmeldung K4).
+- Im **Verlauf** wird er ab 2.17.2 aufgezeichnet (Kurve „Wärmequelle“, ab Werk ausgeblendet – in der Legende einschalten).
 
 ---
 
 ## Raumtemperatur
 
-Der Raumfühler ist **optional**. Ist an GPIO 27 kein DS18B20 angeschlossen und kommt kein externer Wert, arbeitet der Regler rein witterungsgeführt. Das gilt nicht als Störung.
+Der Raumfühler ist **optional**. Ist ihm kein DS18B20 zugeordnet und kommt kein externer Wert, arbeitet der Regler rein witterungsgeführt. Das gilt nicht als Störung.
 
 Die folgenden Einstellungen stehen im Reiter *Heizkurve*, Karte *Raumtemperatur*:
 
 - **Raumtemperatur berücksichtigen:** legt fest, ob der Raumwert die Regelung beeinflusst. Ist der Schalter aus, wird der Raumwert nur angezeigt und aufgezeichnet. Bedienbar über Web, MQTT (`…/set/roomUse` mit `ON`/`OFF`), Modbus (Holding-Register 18) und Home Assistant.
-- **Raumaufschaltung:** Der Vorlauf-Sollwert der Heizkurve wird um *Faktor × (Raum-Soll − Raum-Ist)* korrigiert, begrenzt auf ± *max. Vorlaufkorrektur*. Mit Faktor 3 steigt der Vorlauf um 3 K, wenn der Raum 1 K zu kalt ist. So werden Fremdwärme (Sonne, Kamin) und eine nicht ganz passende Heizkurve ausgeglichen. Richtwerte: Heizkörper 2–4, Fußbodenheizung 1–2. Bei 0 wird der Raumwert nur angezeigt.
+- **Raumaufschaltung:** Der Vorlauf-Sollwert der Heizkurve wird um *Faktor × (Raum-Soll − Raum-Ist)* korrigiert, begrenzt auf ± *max. Vorlaufkorrektur*. Mit Faktor 3 steigt der Regelkreis-Vorlauf um 3 K, wenn der Raum 1 K zu kalt ist. So werden Fremdwärme (Sonne, Kamin) und eine nicht ganz passende Heizkurve ausgeglichen. Richtwerte: Heizkörper 2–4, Fußbodenheizung 1–2. Bei 0 wird der Raumwert nur angezeigt.
 - **Raumabschaltung:** Liegt der Raum um den eingestellten Wert über dem Sollwert, schaltet der Heizkreis ab (Mischer zu, Pumpe aus). Unter dieser Schwelle minus 0,5 K schaltet er wieder ein. 0 schaltet die Funktion aus. Der Frostschutz bleibt aktiv.
 
 **Hinweise:**
@@ -1001,7 +1104,7 @@ Mit den Betriebsarten **Kühlen** und **Heizen/Kühlen automatisch** kühlt der 
 
 **Voraussetzung:** Die Wärmepumpe (oder eine andere Kältequelle) liefert im Kühlbetrieb selbst kaltes Wasser an den Mischer. Der Regler schaltet die Wärmepumpe nicht um. Er mischt nur und meldet den Kühlbetrieb über MQTT, Home Assistant und Modbus, z. B. für eine Automation, die die Wärmepumpe in den Kühlbetrieb schaltet.
 
-**So regelt der Mischer beim Kühlen:** Mischer AUF bedeutet jetzt „mehr kaltes Wasser“, also einen kühleren Vorlauf. Die Wirkrichtung des PI-Reglers ist deshalb umgekehrt: Ist der Vorlauf zu warm, öffnet der Mischer. Mischer ZU bleibt die sichere Stellung – dann fließt kein kaltes Wasser in den Heizkreis. Beim Wechsel zwischen Heizen und Kühlen beginnt der Regler neu.
+**So regelt der Mischer beim Kühlen:** Mischer AUF bedeutet jetzt „mehr kaltes Wasser“, also einen kühleren Regelkreis-Vorlauf. Die Wirkrichtung des PI-Reglers ist deshalb umgekehrt: Ist der Regelkreis-Vorlauf zu warm, öffnet der Mischer. Mischer ZU bleibt die sichere Stellung – dann fließt kein kaltes Wasser in den Heizkreis. Beim Wechsel zwischen Heizen und Kühlen beginnt der Regler neu.
 
 ### Wann wird gekühlt?
 
@@ -1024,18 +1127,19 @@ Der Vorlauf-Sollwert beim Kühlen kommt aus einer **Kühlkurve**: einer Geraden 
 | Punkt A | 22 °C (und kühler) | 22 °C |
 | Punkt B | 32 °C (und wärmer) | 18 °C |
 
-Dazwischen wird linear gerechnet, z. B. 27 °C außen → 20 °C Vorlauf. Je wärmer es draußen ist, desto kühler der Vorlauf.
+Dazwischen wird linear gerechnet, z. B. 27 °C außen → 20 °C Regelkreis-Vorlauf. Je wärmer es draußen ist, desto kühler der Regelkreis-Vorlauf.
 
-Ist ein Raumwert vorhanden und *Raumtemperatur berücksichtigen* an, gilt der **Raumsollwert Kühlen** (Standard 24 °C) mit derselben Raumaufschaltung wie beim Heizen: Ist der Raum 1 K zu warm, wird der Vorlauf bei Faktor 3 um 3 K kühler (begrenzt durch *Max. Vorlaufkorrektur*). Die Raumabschaltung wirkt umgekehrt: Liegt der Raum um den eingestellten Wert **unter** dem Kühl-Sollwert, endet das Kühlen. Eine Absenkung nach Zeitprogramm gibt es beim Kühlen nicht.
+Ist ein Raumwert vorhanden und *Raumtemperatur berücksichtigen* an, gilt der **Raumsollwert Kühlen** (Standard 24 °C) mit derselben Raumaufschaltung wie beim Heizen: Ist der Raum 1 K zu warm, wird der Regelkreis-Vorlauf bei Faktor 3 um 3 K kühler (begrenzt durch *Max. Vorlaufkorrektur*). Die Raumabschaltung wirkt umgekehrt: Liegt der Raum um den eingestellten Wert **unter** dem Kühl-Sollwert, endet das Kühlen. Eine Absenkung nach Zeitprogramm gibt es beim Kühlen nicht.
 
 ### Taupunktschutz
 
-Kühlt der Vorlauf unter den Taupunkt der Raumluft, bildet sich Kondenswasser an Boden, Rohren und Verteilern. Der Regler verhindert das in zwei Stufen:
+Kühlt der Regelkreis-Vorlauf unter den Taupunkt der Raumluft, bildet sich Kondenswasser an Boden, Rohren und Verteilern. Der Regler verhindert das in zwei Stufen:
 
-1. **Untergrenze für den Sollwert:** Aus Raumtemperatur und relativer Raumfeuchte berechnet er den Taupunkt (Magnus-Formel, z. B. 26 °C und 60 % → 17,6 °C). Der Vorlauf-Sollwert bleibt mindestens *Abstand zum Taupunkt* (Standard 2 K) darüber und nie unter *Vorlauf min Kühlen* (Standard 16 °C). Fehlt ein aktueller Feuchtewert, gilt stattdessen *Vorlauf min ohne Feuchtewert* (Standard 20 °C).
-2. **Taupunktalarm:** Fällt der gemessene Vorlauf trotzdem bis 0,5 K an den Taupunkt (ohne Feuchtewert: 2 K unter die Ersatzgrenze), fährt der Mischer sofort ZU und eine laufende Handschaltung endet. Die Pumpe läuft weiter. Freigabe 1 K darüber.
+1. **Untergrenze für den Sollwert:** Aus Raumtemperatur und relativer Raumfeuchte berechnet er den Taupunkt (Magnus-Formel, z. B. 26 °C und 60 % → 17,6 °C). Der Vorlauf-Sollwert bleibt mindestens *Abstand zum Taupunkt* (Standard 2 K) darüber und nie unter *Regelkreis Vorlauf min Kühlen* (Standard 16 °C). Fehlt ein aktueller Feuchtewert, gilt stattdessen *Regelkreis Vorlauf min ohne Feuchtewert* (Standard 20 °C).
+2. **Taupunktalarm:** Fällt der gemessene Regelkreis-Vorlauf trotzdem bis 0,5 K an den Taupunkt (ohne Feuchtewert: 2 K unter die Ersatzgrenze), fährt der Mischer sofort ZU und eine laufende Handschaltung endet. Die Pumpe läuft weiter. Freigabe 1 K darüber.
 
-**Raumfeuchte einspeisen** – eine der drei Möglichkeiten:
+**Raumfeuchte einspeisen** – eine der vier Möglichkeiten:
+- **Bluetooth-Sensor des Raums** (RuuviTag oder Shelly BLU H&T): liefert die Feuchte automatisch mit, sobald er beim Raum eingetragen ist.
 - **MQTT-Topic** unter *Fühler → Raumfeuchte – MQTT-Topic*, z. B. `zigbee2mqtt/Wohnzimmer` mit JSON-Feld `humidity`. Es darf dasselbe Topic wie die Raumtemperatur sein.
 - **MQTT-Befehl** `…/set/humidity` mit der Feuchte in %, z. B. aus einer Home-Assistant-Automation.
 - **Modbus** Holding-Register 24 (Feuchte in % × 10).
@@ -1050,13 +1154,13 @@ Im Reiter **Heizkurve**, Karte **Kühlen & Taupunktschutz**. Über der Karte ste
 |---|---|---|
 | Raumsollwert Kühlen | 24 °C | 18–30 °C |
 | Kühlgrenze Außen | 22 °C | 15–35 °C (mind. Heizgrenze + 2 K) |
-| Kühlkurve Punkt A: Außen / Vorlauf | 22 °C / 22 °C | 15–40 °C / 12–28 °C |
-| Kühlkurve Punkt B: Außen / Vorlauf | 32 °C / 18 °C | 20–45 °C (mind. A + 2 K) / 10–28 °C |
-| Vorlauf min Kühlen | 16 °C | 10–25 °C |
+| Kühlkurve Punkt A: Außen / Regelkreis-Vorlauf | 22 °C / 22 °C | 15–40 °C / 12–28 °C |
+| Kühlkurve Punkt B: Außen / Regelkreis-Vorlauf | 32 °C / 18 °C | 20–45 °C (mind. A + 2 K) / 10–28 °C |
+| Regelkreis Vorlauf min Kühlen | 16 °C | 10–25 °C |
 | Abstand zum Taupunkt | 2 K | 0–10 K |
-| Vorlauf min ohne Feuchtewert | 20 °C | 12–28 °C |
+| Regelkreis Vorlauf min ohne Feuchtewert | 20 °C | 12–28 °C |
 
-Im **Anlagenschema** erscheint der Kühlbetrieb türkis: Vorlauf und Kesselweg des Mischers türkis, Rücklauf gelb (er ist jetzt die wärmere Seite), statt Flamme eine Schneeflocke und „Kälte“ statt „Kessel“. Die Statusanzeigen zeigen „Kühlbetrieb“, Feuchte und Taupunkt sowie „Vorlauf an Taupunktgrenze“ oder „Taupunktschutz – Mischer zu“.
+Im **Anlagenschema** erscheint der Kühlbetrieb türkis: Regelkreis-Vorlauf und Pufferweg des Mischers türkis, Regelkreis-Rücklauf gelb (er ist jetzt die wärmere Seite), statt Flamme eine Schneeflocke und „Kälte“ statt „Puffer“. Die Statusanzeigen zeigen „Kühlbetrieb“, Feuchte und Taupunkt sowie „Regelkreis-Vorlauf an Taupunktgrenze“ oder „Taupunktschutz – Mischer zu“.
 
 > ⚠️ Der Taupunktschutz des Reglers ersetzt keinen Taupunktwächter in der Anlage, wo der Hersteller der Wärmepumpe oder des Bodens einen vorschreibt. Rohre und Verteiler im Kühlbetrieb gegen Kondenswasser dämmen.
 
@@ -1089,13 +1193,13 @@ e  = Vorlauf-Soll − Vorlauf-Ist        (Totzone: |e| < Totzone → 0)
 | Tn | 150 s | kleiner = stärkerer I-Anteil; 0 = nur P-Regler |
 | Totzone | 0,5 K | Ruhe am Antrieb bei kleiner Abweichung |
 | Abtastzeit | 10 s | Abstand der Regelschritte |
-| Min. Impulslänge | 400 ms | schont Relais und Motor |
+| Min. Impulslänge | 400 ms | 100–13 000 ms; schont Relais und Motor. Faustregel 0,3–0,5 % der Motorlaufzeit. Große Werte machen die Regelung grob: 13 s sind bei 120 s Laufzeit fast 11 % Mischerhub je Schritt; über der Motorlaufzeit stellt der Mischer kaum noch |
 
 **Einstellen:**
 1. Mit den Profilwerten starten.
-2. Pendelt der Vorlauf, Kp verkleinern und Tn vergrößern.
+2. Pendelt der Regelkreis-Vorlauf, Kp verkleinern und Tn vergrößern.
 3. Ist er zu träge, umgekehrt.
-4. Bei langen Wegen zwischen Mischer und Vorlauffühler Tn erhöhen.
+4. Bei langen Wegen zwischen Mischer und Fühler Regelkreis Vorlauf Tn erhöhen.
 
 Im Reiter *System* zeigt **„Letzter Stellschritt“** den letzten echten Stellschritt des Reglers mit Richtung, Datum und Uhrzeit, z. B. „+0,42 % · AUF 17.10. 03:59:57 (vor 2 min)“. Schritte von 0 % (Abweichung innerhalb der Totzone) zählen nicht, deshalb bleibt der letzte wirksame Schritt stehen. Seit dem Neustart noch keiner, steht dort „–“. **„Heizkurven-Soll“** zeigt den Sollwert laut Kurve und wann er zuletzt berechnet wurde (bei jedem Regelzyklus, also alle 10–20 s). Liegt dieser Zeitpunkt deutlich weiter zurück, arbeitet die Regelung nicht mehr.
 
@@ -1114,7 +1218,7 @@ Der Regler zählt alle Stellvorgänge des Mischers seit dem letzten Neustart, ge
 | Home Assistant | Sensor „Mischer-Stellvorgänge“ (Zustandsklasse *total_increasing*, Neustarts werden erkannt) |
 | Modbus | Input-Register 14 (oberes Wort) und 15 (unteres Wort), zusammen 32 Bit |
 
-**Wozu der Zähler dient:** Er zeigt, wie stark Antrieb und Relais beansprucht werden. Wie viele Stellvorgänge normal sind, hängt stark von Anlage und Wetter ab. Aussagekräftig ist vor allem der Vergleich: Notiere den Zuwachs über einen Tag und vergleiche ihn nach einer Änderung von Kp, Tn, Totzone oder Mindestimpuls. Steigt die Zahl stark, ohne dass der Vorlauf ruhiger wird, ist der Regler zu „nervös“. Dann Kp verkleinern oder Totzone bzw. Mindestimpuls vergrößern. Der Zähler liegt im Arbeitsspeicher und beginnt nach jedem Neustart bei 0.
+**Wozu der Zähler dient:** Er zeigt, wie stark Antrieb und Relais beansprucht werden. Wie viele Stellvorgänge normal sind, hängt stark von Anlage und Wetter ab. Aussagekräftig ist vor allem der Vergleich: Notiere den Zuwachs über einen Tag und vergleiche ihn nach einer Änderung von Kp, Tn, Totzone oder Mindestimpuls. Steigt die Zahl stark, ohne dass der Regelkreis-Vorlauf ruhiger wird, ist der Regler zu „nervös“. Dann Kp verkleinern oder Totzone bzw. Mindestimpuls vergrößern. Der Zähler liegt im Arbeitsspeicher und beginnt nach jedem Neustart bei 0.
 
 ### Pumpenlaufzeit und Pumpenstarts
 
@@ -1131,18 +1235,116 @@ Der Regler zählt seit dem letzten Neustart, wie lange die Heizkreispumpe gelauf
 
 **Neustart:** Beide Zähler liegen im Arbeitsspeicher und beginnen nach jedem Neustart bei 0. Home Assistant erkennt das Zurücksetzen und führt in seiner Statistik eine Gesamtsumme weiter.
 
+### Leistung der Wärmepumpe
+
+Ab 2.13.0 kann das Anlagenschema neben der Außentemperatur die **Leistung der Wärmepumpe** (WP) in Watt zeigen – nur zur Anzeige, die Regelung verwendet den Wert nicht. Er kommt per **MQTT**, z. B. von einem Shelly-Zähler in der Zuleitung oder von der Wärmepumpe selbst. Einstellungen im Reiter *Regler*, Kasten *Leistung Wärmepumpe*:
+
+| Einstellung | JSON | Bedeutung |
+|---|---|---|
+| MQTT-Topic | `wpTopic` | Topic, das die Leistung meldet; leer = aus. Keine Platzhalter `+`/`#` |
+| JSON-Feld | `wpJsonKey` | Feldname, wenn das Topic JSON sendet, verschachtelt mit Punkt (Standard `power`; Shelly Plus `apower`, Tasmota `ENERGY.Power`). Bei reiner Zahl ohne Bedeutung |
+| Einheit | `wpUnit` | 0 = W, 1 = kW; angezeigt wird immer in W |
+
+Zusätzlich nimmt der Regler `…/set/wpPower` (Wert in W) an. Die Anzeige erscheint, sobald ein Topic eingetragen ist oder ein Wert über `…/set/wpPower` kam; bleibt der Wert länger als 5 min aus, steht dort „–“. Auf dem Smartphone erscheint eine eigene Kachel „Wärmepumpe (WP)“. Im Status-JSON (`/api/status`, `/api/view`) stehen `wpOn` und `wpW` (W, `null` wenn veraltet).
+
+#### Stromzähler der Wärmepumpe (ab 2.19.0)
+
+Aus der Leistung rechnet der Regler den Strom hoch (Leistung × Zeit); Lücken (Leistungswert bleibt aus) fehlen dabei. Meldet ein Stromzähler zusätzlich seinen **Zählerstand**, dient er ab 2.19.2 als **Ersatz**: Maßgeblich bleibt der Strom aus der Leistung; fehlte die Leistung zwischen zwei Zählerständen zeitweise (mehr als 5 min ohne Wert), kommt hinzu, was der Zähler in diesem Abschnitt mehr anzeigt als die Leistung ergab. Ohne Leistungs-Topic zählt so die ganze Zunahme des Zählers. (2.19.0–2.19.1: die Zunahme ersetzte den Strom aus der Leistung immer.) Kasten *Stromzähler Wärmepumpe* im Reiter *Regler*:
+
+| Einstellung | JSON | Bedeutung |
+|---|---|---|
+| MQTT-Topic | `wpEnTopic` | Topic mit dem Zählerstand; leer = aus. Darf dasselbe sein wie das Leistungs-Topic (Tasmota `tele/…/SENSOR`) |
+| JSON-Feld | `wpEnJsonKey` | Standard `total_act` (Shelly Pro 3EM, Topic `…/status/emdata:0`, Wh); Shelly Plus PM/1PM `aenergy.total` (Wh, Topic `…/status/switch:0`); Tasmota `ENERGY.Total` (kWh) |
+| Einheit | `wpEnUnit` | 0 = Wh, 1 = kWh |
+
+Zusätzlich nimmt der Regler `…/set/wpEnergy` (Zählerstand in Wh) an.
+
+- **Zuordnung:** Der Ersatz aus dem Zähler zählt zur gerade laufenden Art (Heizen, Warmwasser bzw. Verdacht, Kühlen); ohne Leistungswert entsteht die Kurve *Leistung WP* im Verlauf aus dem Zähler (Mittel je Punkt).
+- **Basis:** Der erste Zählerstand nach dem Start, nach einem neuen Topic oder einer neuen Einheit und nach über 6 h ohne Meldung gilt nur als Ausgangswert.
+- **Kontrolle:** Die Karte *Energie* zeigt unter der Erklärung „Kontrolle heute: aus Leistung … kWh, Zähler … kWh (± %)“ – verglichen werden nur Abschnitte, in denen beide Werte da waren, seit Mitternacht bzw. Neustart; dazu „Ersatz aus Zähler … kWh“, wenn eine Lücke gefüllt wurde. Weichen beide um mehr als einige Prozent ab, stimmt meist die **Einheit** nicht (kWh als Wh gelesen = Faktor 1000) oder das JSON-Feld gehört zu einem anderen Wert. Der erste Zählerstand steht außerdem im Ereignisprotokoll („Stromzähler Wärmepumpe von MQTT: … kWh“) – er muss zur Anzeige des Zählers passen. `/api/energy` liefert `wpCtlP`, `wpCtlM`, `wpExtra` (kWh) und ab 2.19.3 `wpMeterAge` (s seit dem letzten Zählerstand, in der Karte „vor … gemeldet“). Steht dort nach Minuten noch „Zähler 0,000 kWh“ bzw. ein großes Alter, meldet der Zähler nur selten oder nur einmal (z. B. eine gespeicherte Nachricht beim Abonnieren) – dann hilft er nicht als Ersatz; beim Shelly die Statusmeldungen über MQTT einschalten bzw. das Topic prüfen.
+- **Plausibilität:** Läuft der Stand rückwärts (mehr als 0,5 Wh) oder springt er um mehr als 20 kW × Zeit seit dem letzten Stand + 0,5 kWh, wird er nicht gezählt, sondern als neue Basis genommen (Zählertausch, Zurücksetzen) – mit Eintrag im Ereignisprotokoll.
+- **Herkunft:** Die Karte *Energie* nennt sie („aus der gemeldeten Leistung errechnet, Stromzähler als Ersatz (Stand 12 345,678 kWh)“ bzw. „zurzeit vom Stromzähler (Leistung fehlt)“); `/api/energy` liefert `wpSrc` (1 Leistung, 2 Leistung + Zähler, 3 nur Zähler, 0 keiner) und `wpMeter` (kWh), `/api/status` `wpMeter`.
+- **Auflösung:** 1 Wh bzw. 0,001 kWh ist gut; mit 0,1 kWh stimmen nur Tages- und Monatswerte. Der Zähler sollte nur die Wärmepumpe messen (Heizstab und Steuerung der WP dürfen dabei sein).
+
 ### Wärmemengenzählung
 
-Seit 2.3.0 berechnet der Regler die **Wärmeleistung** des Heizkreises und zählt die **Wärmemenge** – ohne Wärmemengenzähler, aus dem Volumenstrom der Pumpe und der Temperaturdifferenz Vorlauf − Rücklauf:
+Seit 2.3.0 berechnet der Regler die **Wärmeleistung** und zählt die **Wärmemenge** – ohne Wärmemengenzähler, aus dem Volumenstrom und der Temperaturdifferenz zwischen Vorlauf und Rücklauf des jeweiligen Kreises. Seit 2.8.0 für zwei Kreise getrennt:
+
+| Kreis | Fühler | Volumenstrom (Reiter *Regler*) | gilt als laufend |
+|---|---|---|---|
+| **Regelkreis** – hinter dem Mischer, was das Haus bekommt | Regelkreis-Vorlauf, Regelkreis-Rücklauf | **Volumenstrom Regelkreis l/min** (`flowLpm`) | Pumpe K3 läuft |
+| **Heizkreis** – Wärmequelle → Puffer, was die Wärmequelle liefert | Heizung Vorlauf, Heizung Rücklauf | **Volumenstrom Heizkreis l/min** (`srcLpm`) | Betrag der Spreizung ≥ **Mindestspreizung** (`srcMinDt`, Standard 1,0 K) und – falls eingestellt – ≤ **Maximalspreizung** (`srcMaxDt`); die Pumpe dieses Kreises schaltet der Regler nicht |
+
+Bis 2.7 hieß das Feld des Regelkreises „Volumenstrom Heizkreis“; der gespeicherte Wert (`flowLpm`) bleibt erhalten. Formel für beide Kreise:
 
 ```
 P = V̇ · ρ · c · (T_Vorlauf − T_Rücklauf)
 V̇ = Volumenstrom (l/min ÷ 60), ρ = Dichte des Wassers (temperaturabhängig, ca. 0,99 kg/l), c = 4180 J/(kg·K)
 ```
 
-Beispiel: 12 l/min, Vorlauf 45 °C, Rücklauf 38 °C → 0,2 l/s · 0,99 kg/l · 4180 J/(kg·K) · 7 K ≈ **5,8 kW**.
+Beispiel: 12 l/min, Regelkreis-Vorlauf 45 °C, Regelkreis-Rücklauf 38 °C → 0,2 l/s · 0,99 kg/l · 4180 J/(kg·K) · 7 K ≈ **5,8 kW**.
 
-**Einstellen:** Reiter *Regler*, Karte *Mischerregler*, Feld **Volumenstrom Heizkreis l/min** (`flowLpm`, 0 = Zählung aus).
+**Einstellen:** Reiter *Regler*, Karte *Mischerregler*, Felder **Volumenstrom Regelkreis l/min** (`flowLpm`) und **Volumenstrom Heizkreis l/min** (`srcLpm`), jeweils 0 = Zählung aus; dazu **Heizkreis: Mindestspreizung K** (`srcMinDt`, 0,2 … 10) und **Heizkreis: Maximalspreizung K** (`srcMaxDt`, 0 = aus, bis 80).
+
+**Volumenstrom von MQTT oder Modbus** (ab 2.12.0): Hat die Anlage einen Durchflussmesser, Wärmemengenzähler oder eine Wärmepumpe, die den Durchfluss meldet, kann der Volumenstrom je Kreis von dort kommen – Feld **Herkunft** auf *MQTT / Modbus*:
+
+| Weg | Regelkreis | Heizkreis |
+|---|---|---|
+| eigenes MQTT-Topic (Zahl oder JSON, Feldname mit Punkten verschachtelt, z. B. `WMZ.flow`) | *Volumenstrom Regelkreis – MQTT-Topic* | *Volumenstrom Heizkreis – MQTT-Topic* |
+| MQTT-Befehl | `…/set/flowRate` | `…/set/srcFlowRate` |
+| Modbus Holding-Register (l/min × 10) | 30 | 31 |
+
+- **Einheit** der MQTT-Werte wählbar: l/min, l/h oder m³/h (Modbus immer l/min × 10).
+- Der Wert gilt **5 min**; kommt so lange keiner, rechnet der Regler mit dem **eingetragenen Volumenstrom** weiter (0 = dann keine Zählung). Ein gemeldeter Durchfluss von 0 bedeutet: Kreis steht, Leistung 0.
+- Im Reiter *System* steht beim Volumenstrom, woher er gerade kommt („MQTT“, „Modbus“, „eingetragen“ oder „eingetragen (kein externer Wert)“); im Status-JSON `flowLpm` / `srcLpm` (aktueller Wert), `flowFrom` / `srcFlowFrom`, `flowOn` / `srcOn`.
+
+**Heizkreis – wann wird gezählt?** Weil der Regler die Pumpe zwischen Wärmequelle und Puffer nicht kennt, entscheidet die Spreizung (Heizung Vorlauf − Heizung Rücklauf):
+
+| Spreizung | Zustand | gezählt als |
+|---|---|---|
+| Betrag unter der Mindestspreizung | „steht“ | – (so zählt das langsame Auskühlen der Rohre nicht mit) |
+| wahlweise (ab 2.17.3): Wärmepumpe zieht weniger als *Wärmepumpe steht unter W* | „steht“ | – siehe unten |
+| Heizung Vorlauf wärmer, bis zur Maximalspreizung | Wärme | Wärmemenge Heizkreis |
+| Heizung Vorlauf kälter, bis zur Maximalspreizung | Kälte | Kältemenge Heizkreis – ab 2.17.6 **nur in den Betriebsarten Kühlen und Heizen/Kühlen**; in allen anderen Betriebsarten ist eine negative Spreizung Auskühlen oder Umschalten und gilt als „steht“ (2.9.0–2.17.5: unabhängig von der Betriebsart) |
+| **Warmwasserbereitung erkannt** (ab 2.17.0, siehe unten) | „Warmwasser“ | **Warmwasser** (eigene Spalte der Energieliste, nicht in der Wärmemenge Heizkreis) |
+| Betrag über der **Maximalspreizung** (`srcMaxDt`, 0 = aus) ohne Warmwasser-Erkennung „über der Maximalspreizung“ | „über Maximalspreizung“ | – (nicht gezählt, wie bis 2.16) |
+
+Steht die Pumpe, die Fühler aber nahe am Puffer, kann Wärme im Rohr eine Spreizung vortäuschen: dann die Mindestspreizung etwas erhöhen. Die Maximalspreizung so wählen, dass sie über der normalen Ladespreizung liegt (z. B. normal 10–15 K, beim Warmwasser 25 K → Maximalspreizung 20 K). Zustand im Status-JSON: `srcState` (0 steht, 1 Wärme, 2 Kälte, 3 Warmwasser, 4 über Maximalspreizung), Modbus Statusbits 2 Bit 13 (Warmwasser bzw. über Maximalspreizung).
+
+**Heizkreis läuft, wenn …** (ab 2.17.3, `srcRunBy`): *Spreizung ≥ Mindestspreizung* (Werkseinstellung, wie bisher), *Wärmepumpe zieht Strom* oder *beides*. Mit der Wärmepumpe gilt der Heizkreis als stehend – Leistung Heizkreis 0 –, solange die per MQTT gemeldete Leistung WP unter **Wärmepumpe steht unter W** (`srcWpMinW`, Werkseinstellung 80 W: Standby, Steuerung, ggf. Umwälzpumpe) liegt. Das ist zuverlässiger als die Spreizung allein: Eine Spreizung aus auskühlenden Rohren oder ein Rest beim Abschalten zählt dann sicher nicht mit. Ohne aktuellen WP-Wert (älter als 5 min) entscheidet wieder die Spreizung.
+
+**Art der Wärmequelle** (ab 2.17.0, `srcType`, Reiter *Regler*, Kasten *Wärmemenge Heizkreis*): Wärmepumpe (Werkseinstellung), Holz-/Pelletkessel, Gas-/Ölkessel, Solar, Fernwärme, Kaminofen oder Sonstige. Der Name steht im Anlagenschema im Kasten links vom Puffer. Die **Arbeitszahl** der Energieliste gibt es nur bei *Wärmepumpe* – bei anderen Wärmequellen hätte „Wärme ÷ Strom“ keine Aussage.
+
+#### Warmwasser-Erkennung
+
+Bereitet die Wärmepumpe (oder ein Kessel) Warmwasser, fließt die Wärme nicht in den Puffer – die Fühler Heizung Vorlauf/Rücklauf sehen den Kreis aber trotzdem. Ab 2.17.0 erkennt der Regler die Warmwasserbereitung und zählt ihre Wärme **getrennt**; der Strom der Wärmepumpe wird dabei ebenfalls aufgeteilt, damit die Arbeitszahl für Heizen und Warmwasser getrennt stimmt. Kasten *Warmwasser-Erkennung (Heizkreis)* im Reiter *Regler*:
+
+| Einstellung | Werkseinstellung | Wirkung |
+|---|---|---|
+| **Warmwasser-Ventil (Eingang GPIO 27)** (`wwValve`, ab 2.20.0) | nicht angeschlossen | *Kontakt geschlossen = Warmwasser* bzw. *Kontakt offen = Warmwasser*: Die Stellung des Umschaltventils Heizung/Warmwasser bestimmt **allein**, wann Warmwasser bereitet wird; die Erkennung über Spreizung und Leistungsverlauf entfällt (Felder ausgeblendet). Entprellt mit 2 s. Anschluss: Hilfskontakt des Ventils, Endschalter oder Optokoppler zwischen GPIO 27 und GND; bei 230 V am Ventil ein Koppelrelais (230 V-Spule, potentialfreier Kontakt) dazwischen. Pull-up 4,7 kΩ nach 3,3 V am Regler. Anzeige im Reiter *System* (*Warmwasser-Ventil*), Status `wwValve`, ab 2.20.4 MQTT `…/ww_valve`, Home-Assistant-Binärsensor *Warmwasser-Ventil*, Modbus Statusbits 2 Bit 15 |
+| **Warmwasser erkennen** (`wwDetect`) | beides | aus / über der Maximalspreizung / am Leistungsverlauf / beides |
+| **Volumenstrom Warmwasser l/min** (`wwLpm`, ab 2.17.1) | 0 = wie Heizkreis | Die Wärmepumpe bereitet Warmwasser oft mit anderem Durchfluss als beim Laden des Puffers (z. B. 25 statt 20 l/min). Während der Warmwasserbereitung rechnet der Regler die Leistung damit (auch die im Verdacht vorgemerkte Energie). Kommt der Volumenstrom Heizkreis gemessen über MQTT/Modbus, gilt der Messwert |
+| **Umschalten: Leistung unter −kW** (`wwDipKw`) | 0,1 kW | Die Leistung Heizkreis wird beim Umschalten auf Warmwasser kurz leicht negativ (höchstens 5 min vor dem Warmwasser). Unterschreitet die geglättete Leistung −0,1 kW, beginnt der **Verdacht** |
+| **Anstieg mindestens kW** (`wwRiseKw`) | 3 kW | Warmwasser gilt als erkannt, wenn die Leistung danach (innerhalb von 15 min ab dem Umschalten, also etwa 10 min Anstieg) um so viel über die **Heizleistung davor** (Mittel der letzten 5 min) steigt |
+| **Ende unter % des Höchstwerts** (`wwEndPct`) | 50 % | Ende beim schnellen Abfall: Leistung unter diesem Anteil ihres Höchstwerts (frühestens nach 2 min) oder auf null; spätestens nach 3 h |
+
+Ablauf **am Leistungsverlauf** (die Leistung wird mit 30 s Zeitkonstante geglättet, damit einzelne Messwerte nicht stören):
+
+```
+Leistung Heizkreis
+  12 kW ┤                ┌───────────────┐
+        │               ╱                 │  schneller Abfall → Ende
+   6 kW ┤──────────┐   ╱  Anstieg ≥ 3 kW   │      ┌──────── Heizen
+        │  Heizen  │  ╱   über Heizen davor │      │
+   0 kW ┤          └╮╱                      └──────┘
+        │           ╰ Umschalten: kurz leicht negativ (Verdacht)
+```
+
+- **Im Verdacht** wird die Energie (Wärme, Kälte, Strom) **vorgemerkt**. Bestätigt sich das Warmwasser, zählt sie zum Warmwasser (das kurze Negative wird verrechnet); sonst – z. B. beim **Abtauen**, nach dem die Leistung wieder auf die normale Heizleistung zurückkehrt – nach 15 min wie gewohnt zu Heizen bzw. Kälte.
+- **Grenze des Leistungsverlaufs:** Das Umschalten erkennt der Regler am kurzen negativen Ausschlag. Hat die Wärmepumpe vorher **nicht geheizt** (Heizkreis stand), gibt es diesen Ausschlag nicht – und ein Warmwasser-Start sieht dann genauso aus wie ein Heiz-Start. Am Leistungsverlauf allein ist das nicht zu unterscheiden; zuverlässig ist dann nur der **Eingang Warmwasser-Ventil** (oben) oder, wenn die Ladespreizung beim Warmwasser deutlich höher ist, die Erkennung **über der Maximalspreizung**.
+- **Über der Maximalspreizung:** Warmwasser, solange die Spreizung über `srcMaxDt` liegt (aus 1 K darunter). Die Maximalspreizung so wählen, dass sie über der normalen Ladespreizung liegt.
+- **Anzeige:** Anlagenschema „Warmwasser“ mit Leistung, Statusanzeige „Warmwasser x kW · seit y min“, Reiter *System* Zeile *Wärmeleistung Heizkreis*, Ereignisprotokoll „Warmwasser erkannt …“ / „Warmwasser beendet nach … min“. Status-JSON: `wwState` (0 nein, 1 Verdacht, 2 Warmwasser), `wwKw`, `wwMin`, `wwKwhToday`.
+- **Einstellen:** Im Verlauf (Leistung Heizkreis einschalten) eine Warmwasserbereitung ansehen: Wie tief geht die Leistung beim Umschalten, wie hoch steigt sie gegenüber dem Heizen? „Umschalten“ knapp unter den tiefsten Wert, „Anstieg“ etwa auf die Hälfte des Unterschieds stellen.
 
 **Volumenstrom ermitteln:** Die Pumpe **Grundfos UPM3 Hybrid 25-70** zeigt keinen Durchfluss an; ihre Leuchtanzeige gibt nur grob die Leistungsaufnahme wieder. Möglichkeiten, von genau bis grob:
 1. **Hydraulischer Abgleich / Heizungsbauer:** Dort steht der Volumenstrom des Heizkreises meist im Protokoll.
@@ -1152,19 +1354,20 @@ Beispiel: 12 l/min, Vorlauf 45 °C, Rücklauf 38 °C → 0,2 l/s · 0,99 kg/l ·
 
 Faustregel zum Prüfen: **1 l/min bei 10 K Spreizung ≈ 0,7 kW.** Bei konstant eingestellter Pumpe (Konstantkurve) bleibt der Volumenstrom am stabilsten; bei Proportionaldruck schwankt er mit den Thermostatventilen, die Zählung ist dann ungenauer.
 
-**Gezählt wird** nur bei laufender Pumpe und gültigen Vorlauf- und Rücklaufwerten, alle 2 s. Beim Heizen zählt Vorlauf > Rücklauf als Wärme, beim Kühlen Rücklauf > Vorlauf als **Kälte** (eigener Zähler). Die jeweils andere Richtung – etwa durch Fühlertoleranz bei ruhendem Kreis – zählt nicht.
+**Gezählt wird** im Regelkreis nur bei laufender Pumpe und gültigen Vorlauf- und Rücklaufwerten, alle 2 s. Beim Heizen zählt Regelkreis-Vorlauf > Regelkreis-Rücklauf als Wärme, beim Kühlen Regelkreis-Rücklauf > Regelkreis-Vorlauf als **Kälte** (eigener Zähler). Die jeweils andere Richtung – etwa durch Fühlertoleranz bei ruhendem Kreis – zählt nicht.
 
 **Anzeige:**
 
 | Ort | Inhalt |
 |---|---|
-| Übersicht | Etikett „Wärmeleistung 5,8 kW · heute 18,3 kWh“ (beim Kühlen „Kälteleistung …“); auch in der Nur-Anzeige |
-| System → Kennwerte | Wärmeleistung mit Volumenstrom und Spreizung; Wärmemenge heute, gestern, gesamt; Kältemenge (sobald gekühlt wurde) |
-| System → Zähler | Wärmemenge (und Kältemenge) seit Neustart und gesamt |
-| MQTT (`…/state`) | `heatKw`, `heatKwhToday`, `heatKwhYest`, `heatKwhSess`, `heatKwhTotal`, `coolKw`, `coolKwhToday`, `coolKwhSess`, `coolKwhTotal`, `flowLpm`, `energyValid` |
-| Home Assistant | Sensoren „Wärmeleistung“ (kW, Leistung), „Wärmemenge“ und „Wärmemenge heute“ (kWh, Energie, *total_increasing*), „Kälteleistung“, „Kältemenge“ – die Energie-Sensoren lassen sich im **Energie-Dashboard** verwenden |
+| Übersicht | im Anlagenschema (wahlweise, Reiter *Regler*: **Leistung Regelkreis im Anlagenschema** und **Leistung Heizkreis im Anlagenschema**, ab Werk beide ein) die Leistung des Regelkreises unter dem Vorlauf-Soll und die des Heizkreises bei der Wärmequelle, am Smartphone als Kacheln; Etiketten „Wärmeleistung 5,8 kW · heute 18,3 kWh“ (Regelkreis, beim Kühlen „Kälteleistung …“) und „Heizkreis 20,1 kW · heute 64,2 kWh“; im Anlagenschema die Leistung bei der Wärmequelle; auch in der Nur-Anzeige |
+| System → Kennwerte | je Kreis Wärmeleistung mit Volumenstrom und Spreizung; Wärmemenge heute, gestern, gesamt; Kältemenge (sobald gekühlt wurde); beim Heizkreis zusätzlich, wie viel Prozent davon heute im Regelkreis ankamen |
+| System → Zähler | Wärmemenge (und Kältemenge) je Kreis seit Neustart und gesamt |
+| MQTT (`…/state`) | Regelkreis: `heatKw`, `heatKwhToday`, `heatKwhYest`, `heatKwhSess`, `heatKwhTotal`, `coolKw`, `coolKwhToday`, `coolKwhSess`, `coolKwhTotal`, `flowLpm`, `energyValid`; Heizkreis: `srcHeatKw`, `srcHeatKwhToday`, `srcHeatKwhYest`, `srcHeatKwhSess`, `srcHeatKwhTotal`, `srcCoolKw`, `srcCoolKwhToday`, `srcCoolKwhSess`, `srcCoolKwhTotal`, `srcLpm`, `srcMinDt`, `srcValid`, `srcRun`; Einzelwerte `…/power` und `…/heat_source_power` (kW, + Wärme, − Kälte) |
+| Home Assistant | Sensoren „Wärmeleistung Regelkreis“ (kW, Leistung), „Wärmemenge Regelkreis“ und „… heute“ (kWh, Energie, *total_increasing*), „Kälteleistung/Kältemenge Regelkreis“, dazu dieselben fünf für den **Heizkreis** – die Energie-Sensoren lassen sich im **Energie-Dashboard** verwenden |
+| Modbus | Input-Register 43 (Regelkreis) und 44 (Heizkreis): Leistung kW ×100, + Wärme, − Kälte |
 
-**Speicherung:** Die Gesamtmengen und die Tageswerte stehen mit den anderen Gesamtzählern in `/counters.json`. Gespeichert wird alle 6 h, um Mitternacht (Tageswechsel) und vor jedem geordneten Neustart. Bei einem Stromausfall gehen höchstens die letzten 6 h der Zählung verloren. *Gesamtzähler zurücksetzen* setzt auch die Wärmemenge auf 0. War der Regler länger als einen Tag aus, beginnt „gestern“ bei 0.
+**Speicherung:** Die Gesamtmengen und die Tageswerte stehen mit den anderen Gesamtzählern in `/counters.json`. Gespeichert wird stündlich (bis 2.19.2 alle 6 h), um Mitternacht (Tageswechsel) und vor jedem geordneten Neustart bzw. Update. Bei einem Stromausfall oder Absturz geht höchstens die letzte Stunde der Zählung verloren. *Gesamtzähler zurücksetzen* setzt auch die Wärmemenge auf 0. War der Regler länger als einen Tag aus, beginnt „gestern“ bei 0.
 
 **Genauigkeit:** Sie hängt vor allem am eingetragenen Volumenstrom und an der Temperaturdifferenz: 0,1 K Fühlerabweichung bei 5 K Spreizung sind 2 %. Beide Fühler am besten gleich montieren (Anlegefühler mit Wärmeleitpaste und Isolierung) und bei Bedarf unter *Fühler → Korrektur* angleichen – etwa bei ruhendem, warmem Kreis mit offenem Mischer. Gut zum Vergleichen von Tagen und Einstellungen, nicht für eine Abrechnung.
 
@@ -1173,12 +1376,12 @@ Faustregel zum Prüfen: **1 l/min bei 10 K Spreizung ≈ 0,7 kW.** Bei konstant 
 Zu allen drei Zählern – Mischer-Stellvorgänge (AUF/ZU), Pumpenlaufzeit und Pumpenstarts – führt der Regler zusätzlich **Gesamtzähler** (dazu kommen Neustarts und OTA-Updates, siehe unten bzw. [Firmware-Update](#firmware-update-über-wlan-ota)), die Neustarts, Stromausfälle und Firmware-Updates überstehen. Im Reiter *System* zeigt die Karte **Zähler** beide Werte nebeneinander, dazu das Datum des Zählbeginns und der letzten Speicherung.
 
 **Speicherung:** Die Gesamtzähler stehen in der Datei `/counters.json` im Flash, getrennt von den Einstellungen.
-- **Planmäßig:** alle **24 Stunden**.
+- **Planmäßig:** **stündlich** (ab 2.19.3; 2.3.0–2.19.2 alle 6 h, davor alle 24 h), zusammen mit der Energieliste; ohne Eintrag im Ereignisprotokoll.
 - **Vor geplanten Neustarts:** etwa nach Einstellungsänderungen, über *Neustart* oder *Werkseinstellungen*.
 - **Vor jedem OTA-Update.**
 - **Von Hand:** über *Gesamtzähler jetzt speichern*.
 
-Bei einem **Stromausfall** fehlt höchstens der Zuwachs seit der letzten Speicherung, also maximal ein Tag. Mit einem Schreibvorgang pro Tag wird der Flash-Speicher praktisch nicht belastet.
+Bei einem **Stromausfall** oder Absturz fehlt höchstens der Zuwachs seit der letzten Speicherung, also maximal eine Stunde. Das sind 24 Schreibvorgänge zu je rund 2,5 KB am Tag (`/counters.json` und `/energy.bin`); LittleFS verteilt sie über den ganzen Dateibereich – bei etwa 100 000 Löschzyklen je Block reicht das rechnerisch rund 100 Jahre.
 
 **Zurücksetzen:** *Gesamtzähler zurücksetzen* setzt alle Gesamtzähler auf 0 und startet die Zählung neu, zum Beispiel nach dem Tausch von Pumpe oder Stellantrieb. Das geht absichtlich nur über die Weboberfläche. *Werkseinstellungen* löscht die Gesamtzähler **nicht**.
 
@@ -1206,12 +1409,53 @@ Der Regler zählt alle Neustarts über die gesamte Betriebszeit und wertet den G
 
 | Anzeige unter *Letzter Absturz* | Bedeutung, was tun |
 |---|---|
-| Programmfehler (Absturz) | Der ESP32 ist auf einen Fehler gelaufen. Die serielle Ausgabe (USB-Seriell-Adapter, 115200 Baud) zeigt beim Absturz einen „Backtrace“; der *ESP Exception Decoder* der Arduino IDE ordnet ihn einer Quelltextzeile zu – bitte melden. |
-| Task-Watchdog – Regel-Task … blockiert | Der Regel-Task ist 30 s lang nicht durchgelaufen. Das sollte nie vorkommen – bitte mit dem Ereignisprotokoll melden. |
+| Programmfehler (Absturz) | Der ESP32 ist auf einen Fehler gelaufen. Ab 2.18.1 steht dahinter die genaue Ursache aus dem **Core-Dump**, z. B. „– LoadProhibited bei 0x400D52A1 (Zugriff 0x00000000), Task loopTask“, und darunter der **Backtrace** (siehe unten) – bitte beides melden. |
+| Programmfehler – assert failed: udp_new_ip_type … Required to lock TCPIP core functionality, Task loopTask | Fehler im ESP32-Paket 3.3.x ([Issue #13055](https://github.com/espressif/arduino-esp32/issues/13055)): Nach einem WLAN-Neuverbinden löscht der nächste Verbindungsaufbau mit Namen (MQTT, Update) den DNS-Speicher ohne die nötige Sperre; war gerade eine NTP-Namensauflösung offen, stürzt das Programm ab. Ab 2.18.3 behoben – der Zeitdienst bekommt nur noch IP-Adressen. |
+| Task-Watchdog – Regel-Task … blockiert | Der Regel-Task ist 30 s lang nicht durchgelaufen. Bis 2.19.0 möglich, wenn ein langsamer Browser (z. B. Smartphone mit schwachem WLAN) oder MQTT-Server eine Antwort bremste: Webserver und MQTT hielten beim Senden die gemeinsame Sperre, der Regel-Task wartete darauf. Ab 2.19.1 wird nie mehr mit Sperre gesendet, und der Regel-Task wartet höchstens 5 s („Warnung: Regel-Task wartete 5 s auf gemeinsame Daten (gehalten von …)“ im Protokoll). Der Backtrace zeigt hier nur den Leerlauf-Task (IDLE1) und hilft nicht weiter. |
 | Hauptschleife hing länger als 3 min | Webserver, MQTT oder Modbus hingen; der Regel-Task hat die Ausgänge abgeschaltet und neu gestartet. |
 | Interrupt-Watchdog / Watchdog | Das Programm hing auf unterster Ebene, oft durch elektrische Störungen beim Schalten: Entstörglied (RC-Glied) oder Varistor an den Relaiskontakten, Fühler- und Netzleitungen getrennt führen. |
 | Unterspannung (Netzteil zu schwach?) | Die Versorgung ist kurz eingebrochen, meist beim Anziehen der Relais oder beim WLAN-Senden. Stärkeres Netzteil, kurze dicke Zuleitung. |
 | Speichermangel – geordneter Neustart | Der Speicherwächter hat neu gestartet, weil 30 s lang weniger als 15 000 Byte frei waren. Mit dem ESP32 nicht zu erwarten – bitte melden. |
+
+**Speicher und Tätigkeit vor dem Absturz (ab 2.20.0):** Im RTC-Speicher des ESP32, der einen Absturz übersteht, hält der Regler jede Sekunde den freien Speicher und die gerade laufende Tätigkeit der Hauptschleife fest (z. B. „Web: Einstellungen übernehmen“, „Fühlersuche (1-Wire)“, „MQTT senden“). Nach einem Absturz steht beides hinter der Ursache: „· vorher: frei 38 KB, größter Block 9 KB, kleinster seit Start 21 KB, Laufzeit 12 min, zuletzt: Web: Einstellungen übernehmen“. Sehr wenig freier Speicher bzw. ein kleiner größter Block deutet auf Speichermangel (*abort() was called* in `nimble_host` oder `loopTask` ist dann typisch). Nach dem Ausschalten sind die Werte weg.
+
+**Neustartliste (ab 2.20.0):** Jeder Start wird in `/boots.json` festgehalten (die letzten 20): Nummer, Zeitpunkt (sobald die Uhr gestellt ist: jetzt minus Laufzeit), Grund mit Absturzursache und Firmware. Reiter *System*, Karte *Gerät und Netzwerk*, Gruppe *Letzte Neustarts*; Abstürze rot. Die Liste übersteht Abstürze, Updates und *Werkseinstellungen*; *Daten löschen* leert sie.
+
+**Daten löschen / Dateisystem formatieren (ab 2.20.0):** Zwei Knöpfe im Reiter *System* für den Fall, dass gespeicherte Dateien defekt sind oder nicht mehr zur Firmware passen. Zur Sicherheit muss das Wort **LÖSCHEN** eingetippt werden; danach startet der Regler neu, ohne vorher etwas zu speichern.
+
+| Knopf | gelöscht | bleibt |
+|---|---|---|
+| *Werkseinstellungen* (wie bisher) | Einstellungen (`/config.json`) | Verlauf, Energieliste, Gesamtzähler, Profile, Neustartliste |
+| *Daten löschen* | alle Dateien außer den Einstellungen: Verlauf, Energieliste, Gesamtzähler, Profile, Neustartliste | Einstellungen (WLAN, MQTT, Fühler …) |
+| *Dateisystem formatieren* | **alles** – LittleFS wird neu angelegt | nichts; der Regler startet wie neu als Access-Point (siehe [Inbetriebnahme](#inbetriebnahme)) |
+
+Vorher *Einstellungen herunterladen*. Die Firmware selbst und der Core-Dump liegen nicht im Dateisystem und bleiben.
+
+**Core-Dump (ab 2.18.1):** Bei einem Absturz schreibt der ESP32 ein Abbild in die Flash-Partition `coredump` (64 KB, in den Schemata *Minimal SPIFFS* und *Default* enthalten). Beim nächsten Start liest der Regler daraus
+
+- die **Ursache** (z. B. *LoadProhibited* = Lesen über einen ungültigen Zeiger, *StoreProhibited* = Schreiben, *Stack canary watchpoint triggered (Task)* = Stapel übergelaufen, *abort() was called* bzw. *assert failed* = Programm hat sich selbst beendet),
+- die **Programmadresse**, bei Speicherzugriffen die angesprochene Adresse, und den **Task** (`loopTask` = Hauptschleife mit Webserver, MQTT und Speichern; `regelung` = Regel-Task; `nimble_host` / `btController` = Bluetooth; `async_tcp` / `tiT` = Netzwerk),
+- den **Backtrace** (bis 16 Adressen).
+
+Alles steht im Reiter *System* unter *Letzter Absturz*, wird in `/counters.json` gespeichert und im Ereignisprotokoll in drei Zeilen „Backtrace 1–3“ festgehalten. Danach wird der Core-Dump gelöscht. **Auswerten:** Die Adressen gehören zu genau der Firmware, die abgestürzt ist. In der Arduino IDE *Sketch → Kompilierte Binärdatei exportieren* legt die `.elf`-Datei in den Ordner `build`; dann z. B.
+
+```
+xtensa-esp32-elf-addr2line -pfiaC -e Heizungsregler_ESP32.ino.elf 0x400D52A1 0x400D7F10 …
+```
+
+(das Programm liegt im ESP32-Paket unter `packages/esp32/tools/esp-x32/…/bin`) oder die Backtrace-Zeile in den *ESP Exception Decoder* einfügen. Die Ausgabe nennt Funktion und Quelltextzeile.
+
+**Stapelreserve (ab 2.18.1):** Im Reiter *System*, Karte *Gerät und Netzwerk*, steht der kleinste freie Platz auf dem Stapel von Regel-Task und Hauptschleife seit dem Start. Größen ab 2.20.1: Regel-Task 8 KB, Hauptschleife 10 KB (`CTRL_STACK`, `LOOP_STACK`; 2.18.1–2.20.0 je 12 KB – zu Lasten des ohnehin knappen Arbeitsspeichers).
+
+**Langsame Browser (ab 2.21.4):** Eine Webantwort darf die Hauptschleife höchstens 15 s aufhalten; danach bricht der Regler sie ab und schließt die Verbindung („Web: Verlauf nach 15 s abgebrochen (Browser zu langsam oder getrennt)“, höchstens einmal je Minute). Bis 2.21.3 konnte ein schlafendes Smartphone oder ein schwaches WLAN eine Antwort minutenlang aufhalten (je Datenblock bis etwa 10 s Wartezeit) – bis zum Neustart „Hauptschleife hing länger als 3 min“. Diese Meldung nennt ab 2.21.4 auch, was zuletzt lief, und den freien Speicher.
+
+**RTC-Watchdog (ab 2.21.3):** Letzte Sicherung, falls das **ganze System stillsteht** (keine Webseite, LED blinkt nicht, auch die übrigen Watchdogs greifen nicht). Der RTC-Watchdog läuft mit eigenem Takt im RTC-Teil des Chips; der Regel-Task bedient ihn bei jedem Durchlauf. Bleibt das **60 s** aus, setzt er den ganzen Chip zurück. Danach steht bei *Letzter Absturz* „Watchdog (RTC oder sonstiger) – System stand still“ mit freiem Speicher, Laufzeit und Tätigkeit davor sowie dem **Schritt des Regel-Tasks** („Regel-Task: Fühler/Bluetooth/Energie“, „warten auf gemeinsame Daten“ …).
+
+**Speicherverlauf im Protokoll (ab 2.21.3):** Alle 2 h ein Eintrag „Speicher: frei … KB, größter Block … KB, kleinster … KB, Laufzeit …“ – nimmt der freie Speicher über Stunden stetig ab, gibt es ein Leck.
+
+**Prüfung des Arbeitsspeichers (ab 2.20.2):** Alle 5 s prüft der Regler die Verwaltung der Speicherblöcke (`heap_caps_check_integrity_all`). Hat ein Programmteil über das Ende seines Speichers hinaus oder in bereits freigegebenen Speicher geschrieben, wird das so früh erkannt, statt später an ganz anderer Stelle einen Absturz auszulösen (z. B. im Leerlauf-Task beim Watchdog). Dann: Eintrag „Arbeitsspeicher beschädigt erkannt (Laufzeit …, zuletzt: …)“ bei *Letzter Absturz* und im Protokoll, geordneter Neustart; in der Neustartliste „Software-Neustart: Arbeitsspeicher beschädigt erkannt“.
+
+**Speicher beim Start (ab 2.20.1):** Zeile in derselben Karte: freier Speicher am Ende des Starts und vor/nach dem Start von Bluetooth (auch im Ereignisprotokoll: „Speicher nach dem Start: … KB frei“, „Bluetooth gestartet … – Speicher x → y KB frei“). Damit ist zu unterscheiden, ob der Speicher **von Anfang an** knapp ist (Bluetooth und WLAN zusammen brauchen viel) oder **mit der Zeit** abnimmt (Leck). Vor dem Start von Bluetooth gibt der Regler ab 2.20.1 den Speicher des klassischen Bluetooth frei (`esp_bt_controller_mem_release`), das nur BLE gebraucht wird. **Richtwert:** Im Betrieb sollten mindestens 40 KB frei und der größte Block über 15 KB sein; darunter drohen Abstürze (*abort() was called* in `nimble_host` oder `loopTask`). Abhilfe, wenn Bluetooth viel braucht: Bluetooth-Fühler durch MQTT-Werte ersetzen – ohne Bluetooth-Fühler startet der Regler Bluetooth gar nicht. Unter 1 000 Byte schreibt der Regler eine Warnung ins Ereignisprotokoll.
 
 Richtwerte für *Freier Speicher*: im Betrieb meist 150–220 KB frei. Unter 40 000 Byte steht eine Warnung im Ereignisprotokoll.
 
@@ -1240,10 +1484,10 @@ Die Karte **Gerät und Netzwerk** im Reiter *System* (unter der Karte *System*) 
 | Router / Access-Point (BSSID) | MAC-Adresse des Routers oder Repeaters, mit dem der Regler gerade verbunden ist | Bei Mesh-Netzen oder Repeatern sieht man, an welchem Gerät der Regler hängt |
 | Kanal | WLAN-Kanal (1–13) | Störungen durch Nachbarnetze auf demselben Kanal erkennen |
 | Signalstärke | in dBm mit Einordnung: ab −55 *sehr gut*, ab −67 *gut*, ab −75 *mäßig*, darunter *schwach* | Bei *schwach* bricht die Verbindung leicht ab; Antenne/Standort prüfen oder Repeater |
-| IP-Adresse, Subnetzmaske, Gateway, DNS-Server | IP-Konfiguration, wie sie der Router per DHCP vergeben hat | Fehlersuche, wenn MQTT oder die Uhrzeit nicht funktionieren |
+| IP-Adresse, Subnetzmaske, Gateway, DNS-Server | IP-Konfiguration – per DHCP vom Router oder fest eingestellt (Zeile *IP-Adresse* zeigt „DHCP“ bzw. „fest“) | Fehlersuche, wenn MQTT oder die Uhrzeit nicht funktionieren |
 | Eigener Access-Point | nur wenn aktiv: Name, IP-Adresse und Anzahl verbundener Geräte | |
 | MQTT-Broker | Adresse und Port, Zustand (*verbunden* oder *getrennt* mit dem Fehlercode der Bibliothek PubSubClient) und die Client-ID | Fehlersuche bei MQTT; die Client-ID ist im Broker-Protokoll zu sehen |
-| Uhrzeit (NTP) | *synchron* oder *noch nicht synchron* | ohne Uhrzeit arbeiten Zeitprogramm und Feiertage nicht |
+| Uhrzeit (NTP) | *synchron (NTP …)*, *vom Browser übernommen – kein NTP* oder *noch nicht synchron* | ohne Uhrzeit arbeiten Zeitprogramm, Feiertage und Zirkulation nicht (siehe [IP-Adresse und Uhrzeit](#ip-adresse-und-uhrzeit)) |
 
 Fehlercodes MQTT (Auszug): −4 Zeitüberschreitung, −2 Verbindung fehlgeschlagen (Broker nicht erreichbar), 4 Benutzername/Passwort falsch, 5 nicht berechtigt.
 
@@ -1288,24 +1532,50 @@ Relais K4 (GPIO 26) hat einen Wechslerkontakt: **COM** (gemeinsam), **NO** (Schl
 | Funktion | K4 ist an (Relais angezogen) … | typische Verdrahtung |
 |---|---|---|
 | **Aus** | nie | – |
-| **Wärmeanforderung** (Werkseinstellung) | solange der Heizkreis Wärme braucht, siehe unten | COM/NO an den potenzialfreien Anforderungs- bzw. Freigabeeingang von Kessel oder Wärmepumpe („Raumthermostat“, „externe Anforderung“) |
+| **Wärmeanforderung** (Werkseinstellung) | solange der Heizkreis Wärme braucht, siehe unten | COM/NO an den potenzialfreien Anforderungs- bzw. Freigabeeingang von Wärmeerzeuger („Raumthermostat“, „externe Anforderung“) |
 | **Heizen/Kühlen-Umschaltung** | solange der Heizkreis **kühlt** | COM/NO an den Eingang „Kühlbetrieb“ der Wärmepumpe |
 | **Sammelstörmeldung** | solange **keine** Störung vorliegt (Ruhestromprinzip) | COM/NC an Meldeleuchte, Hupe oder Störmeldeeingang: schließt bei Störung |
 | **Zirkulationspumpe** | in den Zeitfenstern, im Takt Laufzeit/Pause | COM/NO schaltet die Pumpe – bei höherer Last über ein Schütz |
 | **Entfeuchter** | beim Kühlen, wenn es zu feucht wird | COM/NO |
 | **Frei schaltbar** | wenn von Hand eingeschaltet (Web, MQTT, Home Assistant, Modbus) | beliebig, z. B. für eine Automation in Home Assistant |
+| **Puffer-Ladepumpe** (ab 2.15.0) | wenn die Wärmequelle heiß und wärmer als der Puffer ist, siehe unten | COM/NO schaltet die Pumpe zwischen Wärmequelle und Puffer – bei höherer Last über ein Schütz |
 
-**Wärmeanforderung im Detail:** K4 zieht an, solange der Mischerregler im **Heizbetrieb** arbeitet: Automatik unterhalb der Heizgrenze, fester Sollwert, Raumtemperatur (außer in der Heizpause), Heizen/Kühlen beim Heizen und **Frostschutz**. Im Handbetrieb fordert K4 an, solange der Heizkreis heizen würde. Keine Anforderung gibt es bei Heizgrenze, Raumabschaltung, Heizpause der Raumregelung, Betriebsart *Aus*, beim **Kühlen** und bei **Übertemperatur** im Vorlauf – der Wärmeerzeuger soll dann nicht noch mehr Wärme liefern. Eine Temperatur überträgt das Relais nicht: Der Wärmeerzeuger muss heiß genug liefern, der Mischer regelt herunter.
+**Wärmeanforderung im Detail:** K4 zieht an, solange der Mischerregler im **Heizbetrieb** arbeitet: Automatik unterhalb der Heizgrenze, fester Sollwert, Raumtemperatur (außer in der Heizpause), Heizen/Kühlen beim Heizen und **Frostschutz**. Im Handbetrieb fordert K4 an, solange der Heizkreis heizen würde. Keine Anforderung gibt es bei Heizgrenze, Raumabschaltung, Heizpause der Raumregelung, Betriebsart *Aus*, beim **Kühlen** und bei **Übertemperatur** im Regelkreis-Vorlauf – der Wärmeerzeuger soll dann nicht noch mehr Wärme liefern. Eine Temperatur überträgt das Relais nicht: Der Wärmeerzeuger muss heiß genug liefern, der Mischer regelt herunter.
 
-**Mindestlaufzeit und Mindestpause** (Werkseinstellung je 5 min, 0 = aus) gelten für Wärmeanforderung, Heizen/Kühlen und Entfeuchter. Nach dem Einschalten bleibt K4 mindestens so lange an, nach dem Ausschalten mindestens so lange aus. Das schützt Kessel, Verdichter und Entfeuchter vor kurzem Takten. Die Karte zeigt die Restzeit, z. B. „Mindestlaufzeit noch 3 min“. Nach einem Neustart und nach dem Wechsel der Funktion gilt keine Mindestpause.
+**Zusätzliche Bedingungen für die Wärmeanforderung** (ab 2.12.0, Karte *Relais K4*, je 0 = aus):
 
-**Sammelstörmeldung:** Als Störung zählen Fühlerfehler (Vorlauf, Rücklauf, Außen, Raum), Übertemperatur und Taupunktalarm – dieselben Bedingungen wie bei der Home-Assistant-Entität *Störung*, dazu der Taupunktalarm. Gemeldet wird erst, wenn die Störung **länger als *Störung melden nach*** (Werkseinstellung 60 s) ansteht; kurze Aussetzer eines Fühlers lösen so keinen Alarm aus. Weil das Relais im Ruhestromprinzip arbeitet, meldet es auch Stromausfall, Absturz und einen hängenden Regler. **Auch jeder Neustart und jedes Firmware-Update** unterbricht die Meldung kurz – eine Störmeldezentrale sollte deshalb erst nach etwa 30 s Alarm geben.
+| Einstellung | Wirkung |
+|---|---|
+| **Anfordern ab Vorlauf-Soll °C** (`k4ReqMinSet`) | Angefordert wird erst, wenn das Vorlauf-Soll mindestens diesen Wert hat; aus, wenn es 1 K darunter fällt. Nützlich, damit der Wärmeerzeuger bei sehr niedrigem Bedarf (Übergangszeit) nicht anspringt. **Frostschutz** fordert immer an |
+| **Nur wenn Puffer kälter als Soll + K** (`k4ReqBoilDt`) | Angefordert wird nur, solange der **Puffer** kälter ist als Vorlauf-Soll + dieser Wert; ist er 2 K wärmer als diese Grenze, endet die Anforderung (Puffer warm genug). Beispiel: Soll 40 °C, Wert 5 K → Anforderung unter 45 °C, aus ab 47 °C. Braucht den Pufferfühler; ohne Pufferwert wird normal angefordert |
+
+Die Karte zeigt den Grund, z. B. „Puffer 52,3 °C warm genug (Soll 40,0 + 5,0 K)“ oder „Vorlauf-Soll 27,5 °C unter 30,0 °C – keine Anforderung“. Die Mindestlauf- und Pausenzeiten gelten weiter. Beide Werte auch über MQTT (`…/set/k4ReqMinSet`, `…/set/k4ReqBoilDt`) und Modbus (Holding-Register 32, 33).
+
+**Mindestlaufzeit und Mindestpause** (Werkseinstellung je 5 min, 0 = aus) gelten für Wärmeanforderung, Heizen/Kühlen, Entfeuchter und Puffer-Ladepumpe. Nach dem Einschalten bleibt K4 mindestens so lange an, nach dem Ausschalten mindestens so lange aus. Das schützt Puffer, Verdichter und Entfeuchter vor kurzem Takten. Die Karte zeigt die Restzeit, z. B. „Mindestlaufzeit noch 3 min“. Nach einem Neustart und nach dem Wechsel der Funktion gilt keine Mindestpause.
+
+**Sammelstörmeldung:** Als Störung zählen Fühlerfehler (Regelkreis Vorlauf, Regelkreis Rücklauf, Außen, Raum, Puffer, Heizung Vorlauf/Rücklauf, Wärmequelle), Übertemperatur und Taupunktalarm – dieselben Bedingungen wie bei der Home-Assistant-Entität *Störung*, dazu der Taupunktalarm. Gemeldet wird erst, wenn die Störung **länger als *Störung melden nach*** (Werkseinstellung 60 s) ansteht; kurze Aussetzer eines Fühlers lösen so keinen Alarm aus. Weil das Relais im Ruhestromprinzip arbeitet, meldet es auch Stromausfall, Absturz und einen hängenden Regler. **Auch jeder Neustart und jedes Firmware-Update** unterbricht die Meldung kurz – eine Störmeldezentrale sollte deshalb erst nach etwa 30 s Alarm geben.
 
 **Zirkulationspumpe:** *Zeitfenster* als Text, z. B. `06:00-08:00, 17:00-22:00` (bis zu 4 Fenster, Ende bis 24:00; leer = ganztägig). In den Fenstern läuft die Pumpe *Laufzeit* Minuten und pausiert *Pause* Minuten (Werkseinstellung 5 / 25, also 5 min je halbe Stunde); Laufzeit 0 = durchgehend. Der Takt beginnt mit dem Zeitfenster. Die Funktion braucht die Uhrzeit; ohne Internet-Uhrzeit bleibt die Pumpe aus. Wochentage und Feiertage unterscheidet sie nicht.
 
-**Entfeuchter:** nur während des Kühlbetriebs. An, sobald die Raumfeuchte *Ein ab Raumfeuchte* erreicht (Werkseinstellung 65 %, aus 5 % darunter) **oder** der Taupunktschutz den Vorlauf anhebt bzw. den Mischer schließt. Die Raumfeuchte kommt vom Bluetooth-Sensor des Raums (RuuviTag, Shelly BLU H&T), über MQTT oder Modbus (siehe [Kühlen](#kühlen)).
+**Entfeuchter:** nur während des Kühlbetriebs. An, sobald die Raumfeuchte *Ein ab Raumfeuchte* erreicht (Werkseinstellung 65 %, aus 5 % darunter) **oder** der Taupunktschutz den Regelkreis-Vorlauf anhebt bzw. den Mischer schließt. Die Raumfeuchte kommt vom Bluetooth-Sensor des Raums (RuuviTag, Shelly BLU H&T), über MQTT oder Modbus (siehe [Kühlen](#kühlen)).
 
 **Frei schaltbar:** Knöpfe *K4 EIN* / *K4 AUS* in der Karte, `…/set/k4Free ON|OFF` über MQTT, Schalter *Relais K4 frei schalten* in Home Assistant oder Holding-Register 26 über Modbus. Der Zustand bleibt über Neustarts erhalten.
+
+**Puffer-Ladepumpe** (ab 2.15.0, bis 2.15 „Kessel-Heizungspumpe“): Die Pumpe zwischen Wärmequelle (z. B. Holzkessel, Kaminofen, Wärmepumpe, Solar) und Puffer lädt den Puffer, sobald die Wärmequelle heiß ist. Gemessen wird mit dem Fühler **Wärmequelle** (ab 2.16.0, siehe [Fühler Wärmequelle](#fühler-wärmequelle)), ersatzweise **Heizung Vorlauf**, und dem Fühler **Puffer**:
+
+| Einstellung | Werkseinstellung | Wirkung |
+|---|---|---|
+| **Wärmequelle aktiv ab °C** (`k4BpStart`) | 45 °C | Pumpe erst, wenn die Wärmequelle diesen Wert erreicht; aus, wenn sie 5 K darunter fällt (Wärmequelle aus). 0 = ohne diese Bedingung |
+| **Ein ab Wärmequelle − Puffer K** (`k4BpDtOn`) | 6 K | ein, wenn die Wärmequelle mindestens so viel wärmer ist als der Puffer |
+| **Aus unter Wärmequelle − Puffer K** (`k4BpDtOff`) | 3 K | aus, wenn der Abstand darunter fällt (kleiner als „Ein ab“; wird sonst angepasst) |
+| **Übertemperatur Wärmequelle °C** (`k4BpMax`) | 90 °C | ab hier läuft die Pumpe **immer** – auch bei Handschaltung AUS und in der Mindestpause –, bis 5 K darunter; rote Statusanzeige. 0 = aus |
+
+- Ohne Pufferwert schaltet die Pumpe nur nach „Wärmequelle aktiv ab“; ohne Wert von Wärmequelle und Heizung Vorlauf bleibt sie aus. Die Karte nennt die Quelle, z. B. „Wärmequelle 68,2 °C (Heizung Vorlauf)“, wenn der Ersatz verwendet wird.
+- **Fühler nah an der Wärmequelle** anbringen (am besten der Fühler *Wärmequelle* in der Tauchhülse): Steht die Pumpe, kühlt eine lange Leitung aus und der Regler bemerkt das Anheizen zu spät.
+- Mindestlaufzeit und Mindestpause gelten auch hier; die Karte zeigt den Grund, z. B. „Wärmequelle 68,2 °C, Puffer 51,0 °C – lädt den Puffer“.
+- Die Leistung, die die Wärmequelle in den Puffer liefert, zeigt die Wärmemengenzählung des Heizkreises (mit Volumenstrom Heizkreis und Fühler Heizung Rücklauf).
+
+**Handschaltung K4** (ab 2.15.0): In der Übersicht, Karte *Handschaltung*, steht unter der Pumpe eine Zeile für K4 mit **Ein / Aus / Automatik**, sobald eine K4-Funktion gewählt ist (bei der Puffer-Ladepumpe heißt sie *Puffer-Ladepumpe (K4)*). Wie bei Mischer und Pumpe endet die Handschaltung nach 24 h und wird nicht gespeichert; Mindestzeiten gelten dann nicht. Bei der Sammelstörmeldung bedeutet *Ein* „Störung melden“. Auch über MQTT (`…/set/k4On`, `k4Off`, `k4Auto`), Modbus-Kommando 17/18/19 und die REST-API (`{"k4":"on"|"off"|"auto"}` an `/api/cmd`). Status: `manK4` (−1 Automatik, 0 aus, 1 ein), `manK4Left` (s), `k4BpHot`.
 
 **Ausgang umkehren:** tauscht angezogen und abgefallen (Funktion aus = Relais angezogen). Meist genügt es, statt NO den NC-Kontakt zu verdrahten; die Einstellung hilft, wenn die Verdrahtung schon feststeht. Bei der Sammelstörmeldung hebt sie das Ruhestromprinzip auf. Sie lässt sich nur im Web ändern, nicht über MQTT oder Modbus.
 
@@ -1316,7 +1586,41 @@ Relais K4 (GPIO 26) hat einen Wechslerkontakt: **COM** (gemeinsam), **NO** (Schl
 - Home Assistant: Binärsensoren *Relais K4* und *Relais K4 angezogen*, Sensor *Relais K4 Zustand* (Klartext), Auswahl *Relais K4 Funktion*, Schalter *Relais K4 frei schalten*.
 - Modbus: Holding-Register 25 (Funktion) und 26 (frei schalten), Input-Register 35–39, Statusbits 2 Bit 7/8.
 
-> ⚠️ Die Relaiskontakte vertragen Netzspannung, aber nicht jede Last. Größere Pumpen und Entfeuchter über ein Schütz schalten. Kleinspannungseingänge von Kessel oder Wärmepumpe nie zusammen mit 230 V auf demselben Relais verdrahten. Arbeiten an 230 V nur durch eine Elektrofachkraft.
+> ⚠️ Die Relaiskontakte vertragen Netzspannung, aber nicht jede Last. Größere Pumpen und Entfeuchter über ein Schütz schalten. Kleinspannungseingänge von Wärmeerzeuger nie zusammen mit 230 V auf demselben Relais verdrahten. Arbeiten an 230 V nur durch eine Elektrofachkraft.
+
+---
+
+## Status-LED und Taster IO0
+
+Seit 2.9.0 haben die Status-LED (GPIO 23) und der Taster IO0 („BOOT“) der Platine eine Funktion. Beides läuft im Regel-Task und funktioniert damit auch, wenn das WLAN oder die Weboberfläche gerade hängt.
+
+**Status-LED** – Einstellung im Reiter *Regler*: **Status-LED** *aus* / *Status und Infos* (Werkseinstellung) / *nur Störungen*, dazu **Status-LED umkehren** für LEDs, die bei LOW leuchten. Es gilt das erste zutreffende Muster:
+
+| Muster | Bedeutung | zeigt bei |
+|---|---|---|
+| kurzer Blitz jede Sekunde | Taster wird gehalten (zum Mitzählen) | immer |
+| schnelles Blinken (5 Hz) | Taster 13 s gehalten – jetzt loslassen = Access-Point ohne Passwort | immer |
+| Dauerlicht | Taster 37 s gehalten – jetzt loslassen = Werkseinstellungen | immer |
+| 5 schnelle Blinks | nach 3× kurz Drücken: Verlauf gespeichert | immer |
+| 1–4 Blinks | nach kurzem Druck: WLAN-Signal (4 ≥ −55 dBm, 3 ≥ −67, 2 ≥ −75, 1 schwächer); ein langes Leuchten = kein WLAN | Status, nur Störungen |
+| Flackern (10 Hz) | Firmware-Update läuft | Status, nur Störungen |
+| 3 kurze Blitze alle 2 s | Störung: Fühlerfehler, Übertemperatur, Taupunktalarm (wie die Sammelstörmeldung K4) | Status, nur Störungen |
+| 1 s an / 1 s aus | eigener Access-Point aktiv | Status |
+| gleichmäßig 2 Hz | WLAN eingerichtet, aber getrennt | Status |
+| alle 3 s ein Blitz / zwei Blitze | Normalbetrieb, Pumpe aus / Pumpe läuft; **lange** statt kurze Blitze: MQTT eingeschaltet, aber nicht verbunden | Status |
+
+**Taster IO0:**
+
+| Bedienung | Wirkung |
+|---|---|
+| kurz drücken (unter 2 s) | LED zeigt 4 s lang das WLAN-Signal (siehe oben) |
+| **3× kurz innerhalb von 2 s** (ab 2.17.3) | Verlauf 24 h und 7 Tage sowie Energieliste im Flash speichern (wie *Verlauf im Regler speichern*), z. B. vor dem Ausschalten; LED blinkt 5× schnell, Eintrag im Ereignisprotokoll |
+| **13 s** halten, dann loslassen | eigener Access-Point `Heizungsregler-xxxxxx` **ohne WLAN-Passwort** für 15 min (`http://192.168.4.1`). Danach – wenn niemand mehr verbunden ist – wieder mit Passwort bzw. aus, sobald das Heim-WLAN verbunden ist. Wer über **diesen** Access-Point zugreift, braucht in dieser Zeit auch **kein Web-Passwort** (ab 2.9.2) – so lässt sich ein vergessenes Passwort neu setzen, ohne alles zurückzusetzen. Aus dem Heimnetz gilt das Web-Passwort weiter. Die Übersicht zeigt „Access-Point offen, ohne Passwörter – noch … min“ |
+| **37 s** halten, dann loslassen | **Werkseinstellungen** wie im Reiter System (Einstellungsdatei löschen, Neustart) – auch der Ausweg bei vergessenem Web-Passwort. Gesamtzähler, Verlauf und Profil GLW8 bleiben |
+
+- Die LED zeigt beim Halten an, was beim Loslassen passiert – zwischen 13 und 37 s loslassen öffnet nur den Access-Point.
+- Jede Stufe steht im Ereignisprotokoll („Taster IO0: 13 s …“).
+- Beim **Einschalten** gedrückt halten startet stattdessen den Programmiermodus des ESP32 (Flashen per USB) – das hat mit diesen Funktionen nichts zu tun.
 
 ---
 
@@ -1324,9 +1628,9 @@ Relais K4 (GPIO 26) hat einen Wechslerkontakt: **COM** (gemeinsam), **NO** (Schl
 
 | Situation | Reaktion |
 |---|---|
-| Vorlauf > Vorlauf max + 5 K | Mischer ZU, Pumpe EIN (Wärme abführen), bis der Vorlauf unter Vorlauf max sinkt |
-| Außen < Frostschutzgrenze | Pumpe EIN, Regelung auf Vorlauf min, auch in „Aus“ und im Sommer; aus bei Frostschutz + 1 K |
-| Vorlauffühler defekt / kein Vorlaufwert | Mischer ZU, Pumpe läuft bei Heizbedarf weiter |
+| Regelkreis-Vorlauf > Regelkreis Vorlauf max + 5 K | Mischer ZU, Pumpe EIN (Wärme abführen), bis der Regelkreis-Vorlauf unter Regelkreis Vorlauf max sinkt |
+| Außen < Frostschutzgrenze | Pumpe EIN, Regelung auf Regelkreis Vorlauf min, auch in „Aus“ und im Sommer; aus bei Frostschutz + 1 K |
+| Fühler Regelkreis Vorlauf defekt / kein Vorlaufwert | Mischer ZU, Pumpe läuft bei Heizbedarf weiter |
 | Außenfühler defekt / kein Außenwert | Rechnung mit 0 °C Ersatzwert |
 | Fühler am Pin defekt bei „Pin, bei Ausfall MQTT“ | automatische Umschaltung auf den externen Wert |
 | externer Wert veraltet | Wert verworfen, Verhalten wie bei Fühlerdefekt |
@@ -1334,8 +1638,8 @@ Relais K4 (GPIO 26) hat einen Wechslerkontakt: **COM** (gemeinsam), **NO** (Schl
 | Pumpe 24 h nicht gelaufen | Blockierschutz: 180 s Pumpenlauf |
 | WLAN weg | Regelung läuft weiter; nach 30 s öffnet sich zusätzlich der Access-Point |
 | Neustart / Stromausfall | Einstellungen bleiben erhalten; Kalibrierfahrt ZU |
-| Kühlen: Vorlauf am Taupunkt (+0,5 K) | Mischer ZU, Pumpe läuft weiter; Freigabe 1 K darüber |
-| Kühlen: keine aktuelle Raumfeuchte | Untergrenze „Vorlauf min ohne Feuchtewert“ |
+| Kühlen: Regelkreis-Vorlauf am Taupunkt (+0,5 K) | Mischer ZU, Pumpe läuft weiter; Freigabe 1 K darüber |
+| Kühlen: keine aktuelle Raumfeuchte | Untergrenze „Regelkreis Vorlauf min ohne Feuchtewert“ |
 | Frost | nie kühlen |
 
 Ein DS18B20 gilt erst nach drei Fehlmessungen in Folge als defekt. Bis dahin bleibt der letzte gültige Wert stehen. Fehlende Fühler sucht der Regler jede Minute neu.
@@ -1344,9 +1648,17 @@ Ein DS18B20 gilt erst nach drei Fehlmessungen in Folge als defekt. Bis dahin ble
 
 ## Temperaturverlauf
 
-Im Reiter *Verlauf* zeigt die obere Grafik Vorlauf, Vorlauf-Soll, Rücklauf, Außen- und Raumtemperatur. Einzelne Kurven blendest du über die Legende ein oder aus. Die untere Grafik zeigt die Mischerstellung, die Pumpenlaufzeiten erscheinen als grüne Balken.
+Im Reiter *Verlauf* zeigt die obere Grafik Regelkreis Vorlauf, Vorlauf-Soll, Regelkreis Rücklauf, Außen-, Raum-, (ab 2.7.0) Puffertemperatur sowie (ab 2.8.0) Heizung Vorlauf und Heizung Rücklauf. Puffer und Heizung erscheinen in der Legende nur, wenn der Zeitraum Werte dafür enthält. Einzelne Kurven blendest du über die Legende ein oder aus; die Auswahl merkt sich der Browser (ab 2.17.1 für alle Kurven, Schlüssel `hVis`). **Ab Werk sichtbar** (ab 2.17.1): Regelkreis VL, Regelkreis VL Soll, Außen, Raum, Leistung Heizkreis und Leistung WP; Regelkreis RL, Puffer, Heizung VL/RL, Wärmequelle (ab 2.17.2) und Leistung Regelkreis sind ausgeblendet. Die untere Leistungsgrafik zeigt neben den Leistungen von Regelkreis und Heizkreis (ab 2.17.1) die **Leistung WP** (elektrisch, aus der per MQTT gemeldeten Leistung, gestrichelt grau) – mittlere Leistung je Punkt, wie die anderen Leistungen aus der aufsummierten Energie. Jede Kurve hat dort einen kräftigen Farbbalken (gestrichelt beim Vorlauf-Soll, wie in der Grafik); ausgeblendete Kurven erscheinen blass. Die untere Grafik zeigt die Mischerstellung, die Pumpenlaufzeiten erscheinen als grüne Balken. Darunter zeigt ab 2.17.4 ein farbiger **Streifen die Betriebsart** (Aus grau, Automatik orange, Fester Sollwert gelb, Handbetrieb violett, Kühlen türkis, Heizen/Kühlen braun, Raumtemperatur blau) – blass, solange der Heizkreis ruht (z. B. über der Heizgrenze oder in der Heizpause). Ab 2.17.5 erscheint die erkannte **Warmwasserbereitung** (siehe [Warmwasser-Erkennung](#warmwasser-erkennung)) im Streifen pink; sie hat Vorrang vor der Farbe der Betriebsart. In der Leistungsgrafik zeigt die Kurve **Leistung Warmwasser** (pink, ab Werk sichtbar) die Leistung während der Warmwasserbereitung – in dieser Zeit ist die Leistung Heizkreis 0. Unter der Grafik steht die Zuordnung der Farben für den gezeigten Zeitraum; die Werteanzeige nennt Betriebsart und Zustand („Automatik · heizt“). Im Wochenverlauf gilt die Betriebsart am Ende der Stunde.
 
-Fährt man mit der Maus über eine der Grafiken oder tippt mit dem Finger darauf, erscheinen für diesen Zeitpunkt alle Werte in einem Kästchen (siehe [Weboberfläche](#weboberfläche)).
+Fährt man mit der Maus über eine der Grafiken oder tippt mit dem Finger darauf, erscheinen für diesen Zeitpunkt alle Werte in einem Kästchen (siehe [Weboberfläche](#weboberfläche)). Ab 2.17.6 ist darin die Zeile **fett hinterlegt**, deren Kurve dem Zeiger in der berührten Grafik am nächsten ist.
+
+**Minimum und Maximum** (ab 2.18.1): Sind in der Legende **höchstens 3 Kurven** eingeschaltet, markiert der Verlauf auf jeder den größten und kleinsten Wert im angezeigten Zeitraum mit einem kleinen Dreieck in der Kurvenfarbe und dem Wert („max 46,7°“, „min −0,9°“, bei Leistungen in kW). Das Maximum steht über, das Minimum unter dem Punkt; am Rand der Grafik auf der anderen Seite. Bei gleichen Werten gilt die neueste Stelle; eine Leistung, die im Zeitraum immer 0 ist, bekommt keine Marke. Praktisch zusammen mit dem Doppelklick auf einen Legendennamen. **Ab 2.20.4** zeigt der Verlauf Minimum und Maximum außerdem **immer für die Kurve, die in der Werteanzeige fett ist** (dem Zeiger am nächsten) – auch bei mehr als 3 Kurven, in allen drei Grafiken (Temperaturen, Mischerstellung in %, Leistungen in kW).
+
+**Legende** (ab 2.17.6): Ein **Doppelklick** (bzw. Doppeltipp) auf einen Namen zeigt nur noch diese Kurve; ein weiterer Doppelklick auf einen Namen stellt die vorherige Auswahl wieder her.
+
+**Zusätzliche Balken** (ab 2.17.6):
+- **Stellvorgänge** in der Mischergrafik, über dem Pumpenbalken: je Datenpunkt ein Strich, oben orange für **AUF**, unten blau für **ZU**; je mehr Stellvorgänge im Abstand der Punkte, desto kräftiger. Die Werteanzeige nennt die Anzahl („2× AUF, 1× ZU“). Aufgezeichnet wird die Zahl der Stellimpulse seit dem vorigen Punkt (im Wochenverlauf die Summe der Stunde).
+- **Vorrangige Energie** unter der Leistungsgrafik: Heizen (orange), Warmwasser (pink), Kühlen (türkis) oder Stillstand (grau) – je Punkt die Art mit dem größten Leistungsbetrag aus Regelkreis, Heizkreis und Warmwasser; unter 0,1 kW Stillstand. Auch in der Werteanzeige („Vorrangig: Heizen“).
 
 **Zeiträume und Auflösung:** Der Regler zeichnet in drei Speichern parallel auf.
 
@@ -1360,13 +1672,69 @@ Die 1-Stunden-Ansicht eignet sich, um das Regelverhalten des Mischers zu beurtei
 
 **7 Tage:** Jeder Punkt ist der Mittelwert einer vollen Stunde, z. B. 13–14 Uhr. Die senkrechten Linien markieren Mitternacht und sind mit Wochentag und Datum beschriftet (auf dem Smartphone nur der Wochentag). Beim Überfahren steht „Stundenmittel“ im Kästchen; bei der Pumpe „meist ein“ bzw. „meist aus“ (mindestens die halbe Stunde gelaufen oder nicht). Gut geeignet, um Heizkurve, Absenkung und Tagesgang über mehrere Tage zu beurteilen.
 - Der Wochenverlauf braucht die Internet-Uhrzeit (NTP). Der erste Punkt erscheint nach der ersten vollen Stunde.
-- **Speichern nur per Knopf:** *Wochenverlauf im Regler speichern* (unter dem Diagramm, nur angemeldet) schreibt den Wochenverlauf in den Flash (Datei `/hist7.bin`, ca. 2,4 KB). Automatisch wird nichts gespeichert – das schont den Flash. In der 7-Tage-Ansicht steht unter dem Diagramm, wann zuletzt gespeichert wurde.
-- **Nach einem Neustart** lädt der Regler den zuletzt gespeicherten Stand. Was danach bis zum Neustart aufgezeichnet wurde, fehlt, ebenso die Zeit, in der der Regler aus war: beides erscheint als Lücke. Vor einem geplanten Neustart oder Update also kurz speichern.
+- **Speichern:** siehe [Verlauf im Flash speichern](#verlauf-im-flash-speichern).
 - Über die REST-API: `POST /api/cmd` mit `{"saveHistory":true}`.
+- **Dateiformat:** Seit 2.17.6 enthält jeder Punkt auch die Stellvorgänge (Format 10, ca. 5,7 KB; Format 9 von 2.17.5 mit Leistung Warmwasser; Format 8 von 2.17.4 mit Betriebsart; Format 7 von 2.17.2 mit Wärmequelle; Format 6 von 2.17.1 mit Leistung WP; Format 5 ab 2.9.0 mit den Leistungen, Format 4 von 2.8 mit Puffer und Heizung, Format 3 von 2.7 mit Puffer). Ein mit einer älteren Version gespeicherter Wochenverlauf wird beim Start übernommen; die neuen Werte fehlen darin.
 - Die CSV-Liste heißt dann z. B. `Heizungsverlauf_2026-10-24_2310_7d.csv`; die Zeitspalte nennt das Ende der jeweiligen Stunde.
 
+#### Leistungen im Verlauf
+
+Seit 2.9.0 zeichnet der Verlauf auch die **Leistung von Regelkreis und Heizkreis** auf (nur mit eingetragenem Volumenstrom). Eingeschaltet werden sie über die Kästchen *Leistung Regelkreis* / *Leistung Heizkreis* in der Legende – dann erscheint unter der Mischergrafik eine dritte Grafik in kW (über null Wärme, unter null Kälte). Der Browser merkt sich die Auswahl.
+
+- **Mittelwert statt Augenblickswert:** Jeder Punkt ist die mittlere Leistung seit dem vorigen Punkt, berechnet aus den Wärme- und Kältezählern – kurze Pumpenläufe zwischen zwei Punkten zählen also richtig mit. Im Wochenverlauf ist es das Stundenmittel.
+- **Auflösung:** 0,1 kW. In der CSV-Liste stehen die Leistungen in den letzten beiden Spalten.
+
+#### Verlauf im Flash speichern
+
+Seit 2.8.2 übersteht neben dem Wochenverlauf auch der **24-h-Verlauf** (5-Minuten-Punkte, Ansichten 6/12/24 h) einen Neustart. Die Stunde mit 30-s-Punkten liegt weiterhin nur im Arbeitsspeicher.
+
+| | Datei | Größe | belegt im Flash |
+|---|---|---|---|
+| 24 h (288 Punkte) | `/hist24.bin` | ca. 9,8 KB (ab 2.17.6 mit Stellvorgängen, Version 7; 2.17.5: 9,2 KB; 2.17.4: 8,7 KB; 2.17.2: 8,1 KB; 2.17.1: 7,5 KB; 2.9.0: 6,9 KB; 2.8.2: 5,8 KB) | 8 KB (2 Blöcke) |
+| 7 Tage (168 Stunden) | `/hist7.bin` | ca. 5,7 KB (ab 2.17.6, Format 10; 2.9.0: 4 KB) | 8 KB (2 Blöcke) |
+
+Das Dateisystem hat rund 190 KB; zusammen mit Einstellungen, Zählern und Profil sind weniger als 10 % belegt.
+
+- **Wann gespeichert wird:** mit dem Knopf **Verlauf im Regler speichern** (unter dem Diagramm, nur angemeldet; bis 2.8.1 „Wochenverlauf im Regler speichern“) und **automatisch vor jedem geplanten Neustart** – nach einem Firmware-Update (Browser und Arduino IDE), nach geänderten Einstellungen, die einen Neustart brauchen, nach *Neustart* und *Werkseinstellungen*. Beide Verläufe werden immer zusammen gespeichert. Ab 2.20.3 zusätzlich **stündlich** (mit Zählern und Energieliste, ohne Protokolleintrag): rund 16 KB je Stunde, das Dateisystem verteilt die Schreibvorgänge, der Flash hält das rechnerisch Jahrzehnte aus. Nach einem Absturz oder Stromausfall fehlt so höchstens die letzte Stunde; die Lücke bis zum Neustart zeigt der Verlauf als Lücke (bis 2.20.2 wurde nicht regelmäßig gespeichert – nach einem Absturz fehlte alles seit dem letzten geordneten Neustart).
+- **Nicht gespeichert** wird bei Stromausfall, Absturz oder Watchdog-Neustart: Dann fehlt alles seit der letzten Speicherung.
+- **Nach dem Start** lädt der Regler beide Stände. Der 24-h-Verlauf wird angeschlossen, sobald die Internet-Uhrzeit (NTP) bekannt ist: Die Zeit seit dem neuesten gespeicherten Punkt erscheint als Lücke, danach geht die Aufzeichnung im 5-Minuten-Takt weiter. Bis dahin (meist wenige Sekunden) zeigt die 24-h-Ansicht noch nichts. Kommt 10 min lang keine Uhrzeit, wird der gespeicherte 24-h-Stand verworfen. Ist er älter als 24 h, beginnt der Verlauf neu.
+- **Anzeige:** In der 24-h- und der 7-Tage-Ansicht steht unter dem Diagramm, wann zuletzt gespeichert wurde.
+- Über die REST-API: `POST /api/cmd` mit `{"saveHistory":true}` (beide Verläufe).
+
+#### Energieliste: Tage, Wochen, Monate
+
+Ab 2.14.0 führt der Regler unter dem Diagramm eine **Energieliste** (Karte *Energie* im Reiter *Verlauf*, auch in der Nur-Anzeige ohne Passwort). Umschaltbar sind:
+
+| Ansicht | Einträge | Zeitraum |
+|---|---|---|
+| **Tage** | 8 | heute und die 7 Tage davor (Kalendertag 0–24 Uhr) |
+| **Wochen** | 9 | diese Kalenderwoche (ISO, Montag–Sonntag) und 8 davor |
+| **Monate** | 13 | dieser Monat und 12 davor – der Vorjahresmonat steht zum Vergleich mit drin |
+
+Je Zeitraum stehen in kWh: **Wärme Regelkreis**, **Kälte Regelkreis**, **Wärme Heizkreis**, **Kälte Heizkreis**, **Warmwasser** (ab 2.17.0, siehe [Warmwasser-Erkennung](#warmwasser-erkennung)) und **Strom Wärmepumpe** (aus der per MQTT gemeldeten Leistung aufsummiert, siehe [Leistung der Wärmepumpe](#leistung-der-wärmepumpe); Lücken ab 2.19.2 aus dem [Stromzähler](#stromzähler-der-wärmepumpe-ab-2190)). Spalten ohne Werte entfallen (z. B. Kälte, solange nie gekühlt wurde).
+
+**Arbeitszahl** (nur bei *Art der Wärmequelle* = Wärmepumpe):
+
+| | Rechnung |
+|---|---|
+| gesamt | (Wärme Heizkreis + Warmwasser + Kälte) ÷ Strom Wärmepumpe |
+| Heizen | Wärme Heizkreis ÷ Strom außerhalb von Warmwasser und Kühlen |
+| Warmwasser | Warmwasser ÷ Strom während der Warmwasserbereitung |
+| Kühlen (ab 2.17.6) | Kälte Heizkreis (ohne Heizkreis-Fühler: Kälte Regelkreis) ÷ Strom beim Kühlen |
+| **System-AZ** (ab 2.21.2, eigene Spalte) | (Wärme **Regelkreis** + Warmwasser + Kälte Regelkreis) ÷ Strom Wärmepumpe – die nutzbare Wärme hinter dem Mischer. Die Differenz zur Arbeitszahl (Heizkreis) sind vor allem Puffer- und Leitungsverluste. Gibt es auch ohne Heizkreis-Fühler. Ein-/ausblenden mit dem Kästchen *System-AZ* oben in der Karte (im Browser gemerkt); im CSV als Spalte *System-Arbeitszahl* |
+
+Die Liste zeigt die gesamte Arbeitszahl groß, darunter klein „Heizen x · WW y · Kühlen z“ (nur die Teile, die es im Zeitraum gibt); in der Summenzeile aus den Summen gerechnet (nicht als Mittel der Einzelwerte). Ein Wert erscheint erst ab 0,05 kWh Strom. Grenzen der Genauigkeit: Volumenstrom (eingetragen oder gemessen), Fühlertoleranz bei kleiner Spreizung, Lücken der MQTT-Leistung (über 5 min alt → kein Strom gezählt), Abtauen zählt als Kälte und wird nicht von der Wärme abgezogen. Der oberste Eintrag läuft noch (fett, „heute“ / „diese Woche“ / „dieser Monat“); darunter eine Summenzeile. Ein dünner Balken unter jeder Zahl zeigt ihren Anteil am größten Wert der Spalte. Die Auswahl merkt sich der Browser; *Energieliste herunterladen (CSV)* speichert die angezeigte Liste.
+
+**Einheit der Wärmeenergie** (ab 2.17.5): Auswahl *Einheit* oben in der Karte *Energie* – kWh (Werkseinstellung), Wh, MWh, J, kJ, MJ, GJ, cal, kcal, Mcal, BTU, kBTU oder therm. Sie gilt für alle Anzeigen von Wärme- und Kältemengen: Energieliste mit CSV, Statusanzeigen der Übersicht („heute …“), Reiter *System* (Wärmemenge heute/gestern/gesamt) und Zähler. Gespeichert wird sie im Regler (`eUnit`, 0 … 12 in dieser Reihenfolge), damit jeder Browser dieselbe Einheit zeigt; in der Nur-Anzeige ohne Anmeldung gilt die Wahl nur für diesen Browser. Leistungen bleiben in kW; gezählt, gespeichert und über MQTT, Modbus und `/api/energy` übertragen wird weiter in kWh bzw. Wh. Umrechnung: 1 kWh = 3,6 MJ = 860,42 kcal = 3 412,14 BTU.
+
+- **Zählung:** dieselbe Rechnung wie die Wärmemengenzählung (alle 2 s); beim Tages-, Wochen- und Monatswechsel rutscht die Liste weiter, der älteste Eintrag fällt heraus. War der Regler länger aus, fehlen die Zeiträume dazwischen – das Datum steht immer dabei.
+- **Ohne Uhrzeit** (kurz nach dem Start ohne NTP) zählt der Regler in den aktuellen Eintrag weiter; das Datum bekommt er, sobald die Uhrzeit bekannt ist.
+- **Erster Start mit 2.14.0:** Die Liste übernimmt die Tageszähler von heute und gestern.
+- **Speichern:** Datei `/energy.bin` (1 084 Byte, ab 2.17.6 acht Werte je Eintrag; ältere Dateien mit 5 oder 7 Werten werden beim ersten Start übernommen) im Flash – zusammen mit den Gesamtzählern stündlich (bis 2.19.2 alle 6 h), bei jedem Tageswechsel und vor jedem geplanten Neustart bzw. Update (wie der Verlauf). Nach einem Stromausfall oder Absturz fehlt höchstens die Zeit seit der letzten Speicherung (ab 2.19.3 höchstens 1 h). **Genauigkeit:** Ab 2.19.3 sammelt der Regler die kleinen Beträge (alle 2 s) zuerst genau (double) und bucht sie ab 20 Wh in die Liste; bis 2.19.2 gingen bei großen Monatssummen durch Rundung einige Prozent verloren. **Werkseinstellungen löschen die Liste nicht.**
+- **REST-API:** `GET /api/energy` (ohne Passwort) liefert `{"d":[[JJJJMMTT, kWh × 7], …], "w":[[JJJJWW, …]], "m":[[JJJJMM, …]], "wp":true, "srcType":0}`, neueste zuerst; Werte: Wärme Regelkreis, Kälte Regelkreis, Wärme Heizkreis, Kälte Heizkreis, Strom Wärmepumpe, Warmwasser, Strom Wärmepumpe während Warmwasser.
+
 **Download als Liste:** *Angezeigten Zeitraum als Liste herunterladen (CSV)* speichert genau den gewählten Zeitraum als Datei, z. B. `Heizungsverlauf_2026-10-16_2241_1h.csv`.
-- **Spalten:** Zeit, Vorlauf, Vorlauf Soll, Rücklauf, Außen, Raum, Mischer %, Pumpe (EIN/AUS).
+- **Spalten:** Zeit, Regelkreis Vorlauf, Regelkreis Vorlauf Soll, Regelkreis Rücklauf, Außen, Raum, Mischer %, Pumpe (EIN/AUS), Puffer, Heizung Vorlauf, Heizung Rücklauf, Leistung Regelkreis kW, Leistung Heizkreis kW, Leistung WP kW (ab 2.17.1), Wärmequelle °C (ab 2.17.2), Betriebsart mit Zustand, z. B. „Automatik (heizt, Warmwasser)“ (ab 2.17.4), Leistung Warmwasser kW (ab 2.17.5).
 - **Format für deutsches Excel und LibreOffice:** Semikolon als Trennzeichen, Komma als Dezimalzeichen, UTF-8 mit BOM. Die Datei lässt sich per Doppelklick öffnen, Umlaute stimmen.
 - **Fehlende Werte** (Fühler gestört oder nicht vorhanden) bleiben leer.
 - **Zeitstempel:** Sie werden nach der Uhr des Geräts berechnet, auf dem die Weboberfläche läuft.
@@ -1387,10 +1755,16 @@ Die Einstellungen stehen unter *Netzwerk*: Broker, Port, Benutzer, Passwort und 
 | `…/state` | alle Werte als JSON |
 | `…/flow`, `…/return`, `…/outdoor`, `…/outdoor_filtered` | Temperaturen in °C |
 | `…/room`, `…/room_target` | Raumtemperatur und Raumsollwert inkl. Absenkung in °C |
+| `…/boiler` | Puffertemperatur in °C (nur, wenn ein Wert vorliegt) |
+| `…/heat_flow`, `…/heat_return` | Heizung Vorlauf / Rücklauf in °C (nur, wenn ein Wert vorliegt) |
+| `…/heat_source_temp` | Temperatur Wärmequelle in °C (ab 2.16.0, nur, wenn ein Wert vorliegt) |
+| `…/power`, `…/heat_source_power` | Leistung Regelkreis / Heizkreis in kW (+ Wärme, − Kälte; nur mit eingetragenem Volumenstrom) |
 | `…/flow_set` | aktiver Vorlauf-Sollwert in °C |
 | `…/valve` | Mischerstellung in % |
 | `…/pump` | `ON` / `OFF` |
 | `…/k4`, `…/k4_relay` | Relais K4: Funktion aktiv bzw. Relais angezogen, `ON` / `OFF` |
+| `…/heat_source_state` | Zustand Heizkreis als Text (ab 2.20.4): `Heizen`, `Warmwasser`, `Kühlen`, `Stillstand`, `über Maximalspreizung`; Warmwasser hat Vorrang (Erkennung oder Ventil). Im JSON `srcStateTxt`, als Zahl `srcState` |
+| `…/ww_valve` | Eingang Warmwasser-Ventil (ab 2.20.4, nur wenn eingerichtet): `ON` = Warmwasser, `OFF` = Heizung. Im JSON `wwValve` |
 | `…/mode` | `off` / `auto` / `manual` / `hand` / `cool` / `heat_cool` / `room` |
 | `…/valve_moves` | Stellvorgänge des Mischers seit Neustart |
 | `…/pump_runtime` | Pumpenlaufzeit seit Neustart in Stunden |
@@ -1411,6 +1785,10 @@ Das Format ist `…/set/<parameter>` mit dem Wert als Nutzlast. Ja/Nein-Werte ve
 heizung/hk1/set/mode          auto      (off, auto, manual, hand, cool, heat_cool, room)
 heizung/hk1/set/coolRoomSet   24.5      (Raumsollwert Kühlen)
 heizung/hk1/set/humidity      55        (Raumfeuchte in % für den Taupunktschutz)
+heizung/hk1/set/flowRate      12.5      (Volumenstrom Regelkreis, Einheit wie eingestellt)
+heizung/hk1/set/srcFlowRate   20        (Volumenstrom Heizkreis)
+heizung/hk1/set/wpPower       1385      (Leistung der Wärmepumpe in W, nur Anzeige, ab 2.13.0)
+heizung/hk1/set/wpEnergy      12345678  (Zählerstand Stromzähler Wärmepumpe in Wh, ab 2.19.0)
 heizung/hk1/set/targetTemp    21        (Sollwert der Thermostat-Karte: beim Kühlen Kühl-, sonst Raumsollwert)
 heizung/hk1/set/roomSet       21.5
 heizung/hk1/set/handPos       40
@@ -1420,6 +1798,10 @@ heizung/hk1/set/nightStart    22:30
 heizung/hk1/set/roomUse       OFF       (Raumwert nur anzeigen)
 heizung/hk1/set/profile       floor     (radiator / floor)
 heizung/hk1/set/roomTemp      21.3      (externe Raumtemperatur)
+heizung/hk1/set/boilerTemp    68.5      (externe Puffertemperatur)
+heizung/hk1/set/heatFlowTemp  72.4      (externer Heizung Vorlauf)
+heizung/hk1/set/heatReturnTemp 58.0     (externer Heizung Rücklauf)
+heizung/hk1/set/sourceTemp    81.5      (externe Temperatur Wärmequelle, ab 2.16.0)
 heizung/hk1/set/outTemp       4.8       (externe Außentemperatur)
 heizung/hk1/set/calibrate     1
 heizung/hk1/set/valveOpen     1         (Handschaltung: Mischer AUF)
@@ -1437,23 +1819,23 @@ Mehrere Werte auf einmal schickst du als JSON an `heizung/hk1/set`, z. B. `{"slo
 | Betrieb | `mode`, `roomSet`, `manualFlowSet`, `handPos` |
 | Heizkurve | `slope`, `shift`, `flowMin`, `flowMax`, `heatLimit`, `frostTemp`, `outFilterMin` |
 | Stützpunkte | `curveMode`, `cpOut1` … `cpOut4`, `cpFlow1` … `cpFlow4`, `cpRoomK` |
-| Rücklauf | `returnMax`, `returnFactor` |
+| Regelkreis Rücklauf | `returnMax`, `returnFactor` |
 | Zeitprogramm | `nightEnabled`, `schedMode`, `nightStart`, `nightEnd`, `nightReduce`, `week`, `holidayAT`, `holidayExtra` |
 | Raum | `roomUse`, `roomFactor`, `roomCorrMax`, `roomCutoff` |
 | Raumregler | `rcKp`, `rcTn`, `rcOff` (Betriebsart *Raumtemperatur*) |
 | Kühlen | `coolRoomSet`, `coolLimit`, `coolOutA`, `coolFlowA`, `coolOutB`, `coolFlowB`, `coolFlowMin`, `dewMargin`, `coolFlowNoHum` |
 | Regler | `kp`, `tn`, `deadband`, `cycleSec`, `travelSec`, `minPulseMs` |
 | Fühler | `offFlow`, `offReturn`, `offOut`, `offRoom`, `extTimeout` |
-| Externe Werte | `flowTemp`, `returnTemp`, `outTemp`, `roomTemp`, `humidity` (Raumfeuchte %) |
+| Externe Werte | `flowTemp`, `returnTemp`, `outTemp`, `roomTemp`, `boilerTemp`, `humidity` (Raumfeuchte %) |
 | Befehle | `calibrate`, `restart`, `rescan`, `profile` (`radiator`/`floor`/`glw8`), `profileSave` |
-| Handschaltung | `valveOpen`, `valveClose`, `valveStop`, `valveAuto`, `pumpOn`, `pumpOff`, `pumpAuto` (Nutzlast beliebig) |
+| Handschaltung | `valveOpen`, `valveClose`, `valveStop`, `valveAuto`, `pumpOn`, `pumpOff`, `pumpAuto`, `k4On`, `k4Off`, `k4Auto` (Nutzlast beliebig) |
 | Relais K4 | `k4Mode` (0–6 oder `off`/`heat_request`/`heat_cool`/`fault`/`circulation`/`dehumidifier`/`free`), `k4Free` (`ON`/`OFF`), `k4MinOn`, `k4MinOff`, `k4FaultSec`, `k4CircWin`, `k4CircRun`, `k4CircPause`, `k4HumOn` |
 
 **Nur über die Weboberfläche änderbar**, damit sich niemand über das Netzwerk aussperren kann:
 - WLAN, Hostname und Web-Passwort
 - MQTT- und Modbus-Einstellungen sowie OTA
 - Stellantrieb-Typ und Relais-Polarität
-- Anschlussart, Zuordnung, Herkunft und MQTT-Topics der Fühler sowie das Feuchte-Topic
+- Bus, Seriennummer, Herkunft und MQTT-Topics der Fühler sowie das Feuchte-Topic
 
 Über MQTT geänderte Werte werden gespeichert, sobald 10 Sekunden lang keine weitere Änderung kam. Das schont den Flash-Speicher.
 
@@ -1466,10 +1848,10 @@ Voraussetzung ist die MQTT-Integration in Home Assistant mit demselben Broker. I
 | Typ | Entitäten |
 |---|---|
 | Thermostat | „Heizkreis“ (Komponente `climate`), siehe [Thermostat in Home Assistant](#thermostat-in-home-assistant) |
-| Sensoren | Vorlauf, Rücklauf, Außen, Außen gedämpft, Raum, Raum-Soll, Vorlauf-Soll, Heizkurven-Soll, Kühlkurven-Soll, Taupunkt, Raumfeuchte, Raumkorrektur, Mischerstellung, Mischer-Stellvorgänge, Pumpenlaufzeit, Pumpenstarts – jeweils seit Neustart und gesamt; Wärmeleistung, Wärmemenge (gesamt, heute), Kälteleistung, Kältemenge (siehe [Wärmemengenzählung](#wärmemengenzählung)); Relais K4 Zustand (Klartext); Diagnose: WLAN-Signal, Neustarts gesamt, Neustarts durch Absturz, letzter Neustartgrund |
-| Binärsensoren | Pumpe, Heizbetrieb, Kühlbetrieb, Taupunktschutz, Absenkbetrieb, Frostschutz, Relais K4; Diagnose: Störung (Fühlerfehler oder Übertemperatur), Relais K4 angezogen |
+| Sensoren | Heizkreis Zustand (ab 2.20.4: Heizen / Warmwasser / Kühlen / Stillstand), Regelkreis Vorlauf, Regelkreis Rücklauf, Außen, Außen gedämpft, Raum, Puffer, Heizung Vorlauf, Heizung Rücklauf, Temperatur Wärmequelle, Raum-Soll, Vorlauf-Soll, Heizkurven-Soll, Kühlkurven-Soll, Taupunkt, Raumfeuchte, Raumkorrektur, Mischerstellung, Mischer-Stellvorgänge, Pumpenlaufzeit, Pumpenstarts – jeweils seit Neustart und gesamt; Wärmeleistung, Wärmemenge (gesamt, heute), Kälteleistung, Kältemenge – je für Regelkreis und Heizkreis (siehe [Wärmemengenzählung](#wärmemengenzählung)); Relais K4 Zustand (Klartext); Diagnose: WLAN-Signal, Neustarts gesamt, Neustarts durch Absturz, letzter Neustartgrund |
+| Binärsensoren | Pumpe, Heizbetrieb, Kühlbetrieb, Taupunktschutz, Absenkbetrieb, Frostschutz, Relais K4, Warmwasser-Ventil (ab 2.20.4, nur wenn eingerichtet); Diagnose: Störung (Fühlerfehler inkl. Puffer und Heizung oder Übertemperatur), Relais K4 angezogen |
 | Auswahl | Betriebsart; Konfiguration: Heizungsprofil (`radiator` / `floor`, Anzeige `custom` wenn angepasst), Relais K4 Funktion |
-| Zahlen | Raumsollwert, Raumsollwert Kühlen, Vorlauf fest, Mischer Hand; Konfiguration: Absenkung, Neigung, Niveau, Vorlauf min/max, Heizgrenze, Kühlgrenze, Raumaufschaltung |
+| Zahlen | Raumsollwert, Raumsollwert Kühlen, Regelkreis Vorlauf fest, Mischer Hand; Konfiguration: Absenkung, Neigung, Niveau, Regelkreis Vorlauf min/max, Heizgrenze, Kühlgrenze, Raumaufschaltung |
 | Schalter | Relais K4 frei schalten; Konfiguration: Absenkbetrieb / Zeitprogramm, Raumtemperatur berücksichtigen |
 | Taster | Mischer kalibrieren, Neustart; Handschaltung: Mischer AUF / ZU / Stopp / freigeben, Pumpe EIN / AUS / Automatik |
 
@@ -1498,7 +1880,7 @@ Das Thermostat „Heizkreis“ wird per MQTT-Discovery als Komponente **`climate
 
 **Aktion:** *Heizen* bzw. *Kühlen*, solange die Pumpe läuft; *Untätig*, wenn der Heizkreis ruht (Heizgrenze, Heizpause der Raumregelung, zwischen Heiz- und Kühlgrenze); *Aus* in der Betriebsart Aus.
 
-> **Geändert in 2.2.0:** Bis 2.1.0 bedeutete `heat` den festen Vorlauf-Sollwert. Automationen, die `climate.set_hvac_mode` mit `heat` verwenden, schalten jetzt auf *Raumtemperatur*. Für den festen Vorlauf `climate.set_preset_mode` mit „Fester Vorlauf“ oder die Auswahl „Betriebsart“ (`manual`) verwenden.
+> **Geändert in 2.2.0:** Bis 2.1.0 bedeutete `heat` den festen Vorlauf-Sollwert. Automationen, die `climate.set_hvac_mode` mit `heat` verwenden, schalten jetzt auf *Raumtemperatur*. Für den festen Regelkreis-Vorlauf `climate.set_preset_mode` mit „Fester Regelkreis-Vorlauf“ oder die Auswahl „Betriebsart“ (`manual`) verwenden.
 
 ---
 
@@ -1511,6 +1893,18 @@ Beide Schnittstellen haben **dieselben Register** und können gleichzeitig aktiv
 | Verbindung | WLAN, Port 502 (einstellbar) | RS485 über MAX485 |
 | Adresse | jede Unit-ID | eingestellte Slave-Adresse 1–247 (Standard 1) |
 | Werkseinstellung | ein | aus |
+| Schutz (ab 2.21.0) | erlaubte Adressen, nur lesen | – (verdrahtet) |
+
+### Schutz für Modbus TCP (ab 2.21.0)
+
+Modbus kennt weder Benutzer noch Passwort: Wer Port 502 erreicht, kann lesen und über die Holding-Register schreiben (Betriebsart, Sollwerte, Befehle, externe Fühlerwerte). Die sichere Variante *Modbus/TCP Security* (TLS, Port 802) wird kaum unterstützt und bräuchte auf dem ESP32 zu viel Speicher. Üblich – und hier umgesetzt – sind Netz- und Gerätesperren. Reiter *Netzwerk*, Kasten *Modbus TCP*:
+
+| Einstellung | JSON | Wirkung |
+|---|---|---|
+| **erlaubte Adressen** | `mbAllow` | einzelne IP-Adressen oder Netze (CIDR), getrennt durch Komma, Leerzeichen oder Strichpunkt, z. B. `192.168.1.20, 192.168.1.0/24`. Verbindungen von anderen Adressen trennt der Regler sofort („Modbus TCP: Verbindung von … abgewiesen“ im Protokoll, höchstens einmal je Minute). Leer = alle. Nicht erkannte Einträge meldet das Protokoll beim Speichern; besteht die Liste nur aus solchen, bleibt Modbus offen (keine Aussperrung durch Tippfehler) |
+| **nur lesen** | `mbReadOnly` | Schreibbefehle (Funktionen 5, 6, 15, 16, 22, 23) beantwortet der Regler mit Ausnahme 1 *unzulässige Funktion*; Lesen (1–4) geht weiter. Damit sind auch externe Fühlerwerte und Volumenströme über Modbus TCP gesperrt |
+
+Beides wirkt sofort (ohne Neustart), nur für Modbus TCP; Modbus RTU bleibt unverändert. Dazu gehört die Absicherung im Netz: Regler in ein eigenes Haustechnik-WLAN oder -VLAN, Port 502 in der Firewall nur für die Steuerung bzw. Home Assistant freigeben, **nie** eine Portweiterleitung aus dem Internet. Wird Modbus nicht gebraucht: *Modbus TCP aktiv* ausschalten.
 
 ### Modbus RTU anschließen
 
@@ -1544,36 +1938,44 @@ Temperaturen werden als vorzeichenbehaftete 16-Bit-Werte übertragen. **−32768
 | 3 | Niveau / Parallelverschiebung K | ×10 |
 | 4 | fester Vorlauf-Sollwert °C | ×10 |
 | 5 | Mischerstellung Handbetrieb % | ×10 |
-| 6 | Vorlauf min °C | ×10 |
-| 7 | Vorlauf max °C | ×10 |
+| 6 | Regelkreis Vorlauf min °C | ×10 |
+| 7 | Regelkreis Vorlauf max °C | ×10 |
 | 8 | Heizgrenze °C | ×10 |
 | 9 | Absenkbetrieb / Zeitprogramm aktiv (0/1) | 1 |
 | 10 | Absenkung K | ×10 |
-| 11 | Rücklauf max °C (0 = aus) | ×10 |
+| 11 | Regelkreis Rücklauf max °C (0 = aus) | ×10 |
 | 12 | Kp %/K | ×100 |
 | 13 | Tn s | 1 |
-| 14 | Kommando: 1 Kalibrieren, 2 Neustart, 3 Fühlersuche, 4 Profil Radiator, 5 Profil Fußboden, 6 Profil GLW8 laden, 7 aktuelle Werte als GLW8 speichern; Handschaltung: 10 Mischer AUF, 11 Mischer ZU, 12 Mischer Stopp, 13 Mischer freigeben, 14 Pumpe EIN, 15 Pumpe AUS, 16 Pumpe Automatik (wird danach auf 0 gesetzt) | – |
+| 14 | Kommando: 1 Kalibrieren, 2 Neustart, 3 Fühlersuche, 4 Profil Radiator, 5 Profil Fußboden, 6 Profil GLW8 laden, 7 aktuelle Werte als GLW8 speichern; Handschaltung: 10 Mischer AUF, 11 Mischer ZU, 12 Mischer Stopp, 13 Mischer freigeben, 14 Pumpe EIN, 15 Pumpe AUS, 16 Pumpe Automatik, 17 K4 EIN, 18 K4 AUS, 19 K4 Automatik (wird danach auf 0 gesetzt) | – |
 | 15 | Raumaufschaltung K/K | ×10 |
 | 16 | Raumabschaltung K (0 = aus) | ×10 |
 | 17 | externe Raumtemperatur °C | ×10 |
 | 18 | Raumtemperatur berücksichtigen (0/1) | 1 |
-| 19 | externer Vorlauf °C (spätestens alle 2 min schreiben) | ×10 |
-| 20 | externer Rücklauf °C (spätestens alle 2 min schreiben) | ×10 |
+| 19 | externer Regelkreis-Vorlauf °C (spätestens alle 2 min schreiben) | ×10 |
+| 20 | externer Regelkreis-Rücklauf °C (spätestens alle 2 min schreiben) | ×10 |
 | 21 | externe Außentemperatur °C | ×10 |
 | 22 | Raumsollwert Kühlen °C | ×10 |
 | 23 | Kühlgrenze °C | ×10 |
 | 24 | externe Raumfeuchte % (Taupunktschutz) | ×10 |
 | 25 | Relais K4 Funktion: 0 Aus, 1 Wärmeanforderung, 2 Heizen/Kühlen, 3 Sammelstörmeldung, 4 Zirkulation, 5 Entfeuchter, 6 frei schaltbar | 1 |
 | 26 | Relais K4 frei schalten (0/1, wirkt bei Funktion 6) | 1 |
+| 27 | externe Puffertemperatur °C | ×10 |
+| 28 | externer Heizung Vorlauf °C (ab 2.8.0) | ×10 |
+| 29 | externer Heizung Rücklauf °C (ab 2.8.0) | ×10 |
+| 30 | Volumenstrom Regelkreis l/min (ab 2.12.0, bei Herkunft „MQTT / Modbus“) | ×10 |
+| 31 | Volumenstrom Heizkreis l/min (ab 2.12.0) | ×10 |
+| 32 | Wärmeanforderung K4: anfordern ab Vorlauf-Soll °C (0 = aus) | ×10 |
+| 33 | Wärmeanforderung K4: nur wenn Puffer kälter als Soll + K (0 = aus) | ×10 |
+| 34 | externe Temperatur Wärmequelle °C (ab 2.16.0) | ×10 |
 
-Die Register 17, 19–21 und 24 sind Eingänge für externe Werte. Register 24 (Feuchte) wird immer übernommen. Sie werden nur verwendet, wenn beim jeweiligen Fühler die Herkunft „MQTT / Modbus“ oder „Pin, bei Ausfall MQTT“ eingestellt ist, und müssen regelmäßig geschrieben werden (siehe [Zeitüberwachung](#zeitüberwachung)).
+Die Register 17, 19–21, 24, 27–29 und 30–31 sind Eingänge für externe Werte; 30 und 31 gelten 5 min, danach rechnet der Regler mit dem eingetragenen Volumenstrom. Register 24 (Feuchte) wird immer übernommen. Sie werden nur verwendet, wenn beim jeweiligen Fühler die Herkunft „MQTT / Modbus“ oder „Pin, bei Ausfall MQTT“ eingestellt ist, und müssen regelmäßig geschrieben werden (siehe [Zeitüberwachung](#zeitüberwachung)).
 
-**Input-Register** (FC04), zusätzlich gespiegelt als Holding-Register 100–139 für Master, die nur FC03 können:
+**Input-Register** (FC04), zusätzlich gespiegelt als Holding-Register 100–146 für Master, die nur FC03 können:
 
 | Adr. | Wert | Skalierung |
 |---|---|---|
-| 0 | Vorlauf °C | ×10 |
-| 1 | Rücklauf °C | ×10 |
+| 0 | Regelkreis-Vorlauf °C | ×10 |
+| 1 | Regelkreis-Rücklauf °C | ×10 |
 | 2 | Außen °C | ×10 |
 | 3 | Außen gedämpft °C | ×10 |
 | 4 | aktiver Vorlauf-Sollwert °C | ×10 |
@@ -1602,10 +2004,16 @@ Die Register 17, 19–21 und 24 sind Eingänge für externe Werte. Register 24 (
 | 31 | Taupunkt im Raum °C | ×10 |
 | 32 | Raumfeuchte % | ×10 |
 | 33 | Heizkreis: 0 ruht, 1 heizt, 2 kühlt | 1 |
-| 34 | Statusbits 2: Bit 0 Kühlbetrieb, 1 über Kühlgrenze, 2 Kühl-Soll auf Untergrenze angehoben, 3 Taupunktalarm, 4 gültige Raumfeuchte, 5 Raumregelung Heizpause, 6 Raumregelung Ersatzbetrieb (kein Raumwert), 7 Relais K4 Funktion aktiv, 8 Relais K4 angezogen | – |
+| 34 | Statusbits 2: Bit 0 Kühlbetrieb, 1 über Kühlgrenze, 2 Kühl-Soll auf Untergrenze angehoben, 3 Taupunktalarm, 4 gültige Raumfeuchte, 5 Raumregelung Heizpause, 6 Raumregelung Ersatzbetrieb (kein Raumwert), 7 Relais K4 Funktion aktiv, 8 Relais K4 angezogen, 9 Fehler Pufferfühler, 10 Fehler Heizung Vorlauf, 11 Fehler Heizung Rücklauf, 12 Heizkreis läuft, 13 Heizkreis Warmwasser bzw. über Maximalspreizung, 14 Fehler Fühler Wärmequelle, 15 Eingang Warmwasser-Ventil meldet Warmwasser (ab 2.20.4) | – |
 | 35 | Relais K4: Bit 0 Funktion aktiv, Bit 1 Relais angezogen, Bit 8–15 Funktion (0–6) | – |
 | 36 / 37 | Relais K4: Einschaltungen seit Neustart, oberes / unteres Wort | – |
 | 38 / 39 | Relais K4: Laufzeit seit Neustart in s, oberes / unteres Wort | – |
+| 40 | Puffertemperatur °C | ×10 |
+| 41 / 42 | Heizung Vorlauf / Heizung Rücklauf °C (ab 2.8.0) | ×10 |
+| 43 | Leistung Regelkreis kW (+ Wärme, − Kälte; 0 ohne Volumenstrom) | ×100 |
+| 44 | Leistung Heizkreis kW (+ Wärme, − Kälte) | ×100 |
+| 45 | Temperatur Wärmequelle °C (ab 2.16.0) | ×10 |
+| 46 | Zustand Heizkreis (ab 2.20.4): 0 Stillstand, 1 Heizen, 2 Kühlen, 3 Warmwasser (auch per Ventil), 4 über Maximalspreizung | 1 |
 
 **Statusbits (Register 8):**
 
@@ -1614,8 +2022,8 @@ Die Register 17, 19–21 und 24 sind Eingänge für externe Werte. Register 24 (
 | 0 | Heizbetrieb | 8 | Rücklaufbegrenzung aktiv |
 | 1 | Absenkbetrieb gerade aktiv | 9 | Regelung aktiv |
 | 2 | Frostschutz | 10 | MQTT verbunden |
-| 3 | Fehler Vorlauf | 11 | Access-Point aktiv |
-| 4 | Fehler Rücklauf | 12 | Raumwert gestört |
+| 3 | Fehler Regelkreis-Vorlauf | 11 | Access-Point aktiv |
+| 4 | Fehler Regelkreis-Rücklauf | 12 | Raumwert gestört |
 | 5 | Fehler Außen | 13 | Raumabschaltung aktiv |
 | 6 | Übertemperatur | 14 | Raumtemperatur wird berücksichtigt |
 | 7 | Kalibrierung läuft | 15 | Raumwert kommt aktuell von extern |
@@ -1638,6 +2046,12 @@ Während des Uploads (ca. 20–40 s) setzt der Regelzyklus aus (Fühler werden w
 - **Danach:** Der Regler startet neu und kalibriert den Mischer.
 
 OTA lässt sich unter *Netzwerk → Modbus RTU & OTA-Update* abschalten.
+
+**„Übertragung an das Gerät abgebrochen“** (Browser): Die Verbindung riss während des Hochladens ab. Der Webserver des ESP32 bricht ab, wenn 5 s lang keine Daten kommen. Ursachen und Abhilfe:
+- **Bluetooth-Empfang:** WLAN und Bluetooth teilen sich beim ESP32 Antenne und Funkzeit. Ab 2.8.1 ruht der Bluetooth-Empfang während des Updates von selbst. Läuft noch eine ältere Firmware, vor dem Update im Reiter *Fühler* bei Außen und Raum vorübergehend eine Herkunft ohne Bluetooth wählen (bzw. die Bluetooth-Suche beenden lassen) und danach zurückstellen.
+- **Schwaches WLAN:** WLAN-Signal im Reiter *System* prüfen (besser als etwa −75 dBm); den Browser nicht in den Ruhezustand gehen lassen.
+- **Andere Wege:** Arduino IDE (Netzwerk-Port) oder USB-Kabel.
+- **Im Ereignisprotokoll** steht, was der Regler selbst gesehen hat, z. B. „Firmware-Update (Browser) fehlgeschlagen: Übertragung abgebrochen“. Ab 2.8.1 hängt der Browser diese Meldung und den Fortschritt in % an die Fehlermeldung an.
 
 **Letztes OTA-Update:** Im Reiter *System* steht bei *OTA-Update* das Datum des letzten erfolgreichen Updates über WLAN, der Weg und die Version, von der aus aktualisiert wurde, z. B. „letztes Update 17.10.2026 03:12 (aus Arduino IDE, vorher Version 1.23.0)“. Der Regler speichert das in `/counters.json`, deshalb übersteht es den Neustart und auch *Werkseinstellungen*. Hatte der Regler keine Internet-Uhrzeit, steht dort „Zeit unbekannt“.
 
@@ -1995,24 +2409,26 @@ Vor `<?php` darf nichts stehen (auch keine Leerzeile), und am Ende steht bewusst
 
 ## REST-API
 
-Alle Endpunkte liefern JSON. Ist ein Web-Passwort gesetzt, ist HTTP-Basic-Auth mit dem Benutzer `admin` nötig – außer für `/`, `/api/view` und `/api/history`.
+Alle Endpunkte liefern JSON. Ist ein Web-Passwort gesetzt, ist HTTP-Basic-Auth mit dem Benutzer `admin` nötig – außer für `/`, `/api/view`, `/api/history` und `/ota.js`.
 
 | Methode | Pfad | Inhalt |
 |---|---|---|
 | GET | `/` | die Weboberfläche selbst (HTML, aus `web_ui.h`) – **ohne Passwort**, die Daten kommen über die API |
 | GET | `/api/view` | Nur-Anzeige für das Anlagenschema – **ohne Passwort**: Temperaturen, Sollwerte, Mischer, Pumpe, Betriebsart, Zeitprogramm, Störungen, Uhrzeit, Firmware; `auth` = Passwort gesetzt |
 | GET | `/login` | fragt das Passwort ab und leitet dann zur vollen Oberfläche weiter |
-| GET | `/api/status` | Live-Werte, Zustände, Systeminfos, Anzahl der Protokolleinträge (`logCount`); Handschaltung: `manValve`, `manPump` (−1 Automatik, 0 aus, 1 ein), Restzeiten `manValveLeft` / `manPumpLeft` in s, `manPumpForced`; letzter Stellschritt `stepDY` und Alter `stepAge` in s, Alter des Heizkurven-Solls `curveAge` in s, letztes OTA-Update `lastOta` / `lastOtaFrom` / `lastOtaVia` (`ide`/`web`); OTA-Updates gesamt `totOta`, davon `totOtaIde` / `totOtaWeb`; Speicher `heap`, `heapBlock`, `heapFrag`, `heapMin`, `heapBlockMin`; letzter Absturz `crash`, `crashAt`; Kühlen `cooling`, `hcState`, `coolSet`, `coolMin`, `dewPoint`, `humidity`, `dewLimit`, `dewAlarm` |
+| GET | `/api/status` | Live-Werte, Zustände, Systeminfos, Anzahl der Protokolleinträge (`logCount`); Handschaltung: `manValve`, `manPump` (−1 Automatik, 0 aus, 1 ein), Restzeiten `manValveLeft` / `manPumpLeft` in s, `manPumpForced`; letzter Stellschritt `stepDY` und Alter `stepAge` in s, Alter des Heizkurven-Solls `curveAge` in s, letztes OTA-Update `lastOta` / `lastOtaFrom` / `lastOtaVia` (`ide`/`web`); OTA-Updates gesamt `totOta`, davon `totOtaIde` / `totOtaWeb`; Speicher `heap`, `heapBlock`, `heapFrag`, `heapMin`, `heapBlockMin`; letzter Absturz `crash`, `crashAt`; Kühlen `cooling`, `hcState`, `coolSet`, `coolMin`, `dewPoint`, `humidity`, `dewLimit`, `dewAlarm`; Wärmemenge `flowLpm`, `energyValid`, `heatKw`, `coolKw`, `heatKwhToday`, `heatKwhYest`, `heatKwhSess`, `heatKwhTotal`, `coolKwhToday`, `coolKwhSess`, `coolKwhTotal`; Relais K4 `k4`, `k4Coil`, `k4Mode`, `k4ModeTxt`, `k4Free`, `k4Info`, `k4RunSec`, `k4Starts`, `totK4RunSec`, `totK4Starts` |
 | GET | `/api/config` | alle Einstellungen (Passwörter als `********`) |
 | POST | `/api/config` | Einstellungen ändern; es genügen die zu ändernden Felder, z. B. `{"roomSet":21}` |
-| POST | `/api/cmd` | `{"calibrate":true}`, `{"restart":true}`, `{"rescan":true}`, `{"factoryReset":true}`, `{"saveTotals":true}`, `{"resetTotals":true}`, `{"saveHistory":true}` (Wochenverlauf speichern), `{"bleScan":true}` (Bluetooth-Suche 10 min), `{"profile":1,"withTravel":false}` (1 Radiator, 2 Fußboden, 3 GLW8), `{"saveProfile":"glw8"}`; Handschaltung: `{"valve":"open"}` (bzw. `close`, `stop`, `auto`), `{"pump":"on"}` (bzw. `off`, `auto`) |
+| POST | `/api/cmd` | `{"calibrate":true}`, `{"restart":true}`, `{"rescan":true}`, `{"factoryReset":true}`, `{"saveTotals":true}`, `{"resetTotals":true}`, `{"saveHistory":true}` (Verlauf 24 h und 7 Tage speichern), `{"setTime":<Unix-Zeit>}` (Uhrzeit setzen, nur ohne NTP), `{"bleScan":true}` (Bluetooth-Suche 10 min), `{"profile":1,"withTravel":false}` (1 Radiator, 2 Fußboden, 3 GLW8), `{"saveProfile":"glw8"}`; Handschaltung: `{"valve":"open"}` (bzw. `close`, `stop`, `auto`), `{"pump":"on"}` (bzw. `off`, `auto`) |
 | GET | `/api/log` | Ereignisprotokoll als Text, bis 67 Zeilen, neueste zuerst |
 | GET | `/api/sysinfo` | Gerät und Netzwerk: `mac`, `apMac`, `hostname`, `mdns`, `wifiMode`, `ssid`, `bssid`, `channel`, `rssi`, `ip`, `mask`, `gw`, `dns`, `dns2`, im Access-Point-Betrieb `apSsid`, `apIp`, `apClients`; `mqttHost`, `mqttState`, `mqttId`, `ntp`; `chipId`, `flashId`, `cpuMHz`, `flashReal`, `flashSize` (Byte), `flashMHz`, `sketch`, `sketchFree`, `fsTotal`, `fsUsed` (Byte), `resetReason`; `fw`, `build`, `core`, `sdk` |
 | GET | `/api/profiles` | Werte aller Profile (Radiator, Fußboden, GLW8), aktuelles Profil, ob und wann GLW8 gespeichert wurde |
 | GET | `/api/curve.csv` | Heizkurve als CSV-Liste, zur Laufzeit im Regler erzeugt (siehe [Heizkurve als Liste](#heizkurve-als-liste-herunterladen)) |
-| GET | `/api/sensors` | je Fühler: Pin, Herkunft, gefundener DS18B20, Pin-Wert, externer Wert mit Alter, verwendeter Wert, Störung; bei gemeinsamem Bus zusätzlich alle gefundenen DS18B20 mit Rolle ; je Fühler zusätzlich `bleMac`, `bleT`, `bleAge`; dazu `bleOn` (Empfang läuft), `bleDiscover` (Restdauer der Suche in s) und `ble` = alle empfangenen RuuviTags mit `mac`, `t`, `h`, `p` (hPa), `mv`, `rssi`, `fmt`, `age`, `roles` |
-| GET | `/api/history` | **ohne Passwort** – Verlauf 24 h in 5 min, mit `?res=fine` 1 h in 30 s, mit `?res=week` 7 Tage als Stundenmittel (`iv` 3600, `age` = Sekunden seit Ende der letzten vollen Stunde): `{"iv":300,"age":s,"d":[[vorlauf,soll,rücklauf,außen,raum,mischer,pumpe],…]}`; Werte ×10, −32768 = ungültig |
-| GET / POST | `/update` | Seite zum Hochladen der Firmware / Empfang der `.bin`-Datei |
+| GET | `/api/sensors` | je Fühler: `pin` (Bus als Text), `bus` (0 … 2), Herkunft, gefundener DS18B20, Wert vom Bus, externer Wert mit Alter, verwendeter Wert, Störung; `busN` = Anzahl DS18B20 je Bus; `bus` = alle gefundenen DS18B20 mit Bus (`on`), Seriennummer, Temperatur und zugeordnetem Fühler (`role`); je Fühler zusätzlich `bleMac`, `bleT`, `bleAge`; dazu `bleOn` (Empfang läuft), `bleDiscover` (Restdauer der Suche in s) und `ble` = alle empfangenen Bluetooth-Sensoren mit `mac`, `type` (`ruuvi` / `shelly`), `t`, `h`, `p` (hPa), `mv`, `bat` (% beim Shelly), `enc` (`""` unverschlüsselt, `ok`, `key` = Schlüssel fehlt, `bad` = Schlüssel falsch), `rssi`, `fmt`, `age`, `roles` |
+| GET | `/api/history` | **ohne Passwort** – Verlauf 24 h in 5 min, mit `?res=fine` 1 h in 30 s, mit `?res=week` 7 Tage als Stundenmittel (`iv` 3600, `age` = Sekunden seit Ende der letzten vollen Stunde): `{"iv":300,"age":s,"d":[[vorlauf,soll,rücklauf,außen,raum,mischer,pumpe,Puffer,heizungVorlauf,heizungRücklauf],…]}`; Werte ×10, −32768 = ungültig |
+| GET / POST | `/update` | Seite zum Hochladen der Firmware / Empfang der `.bin`-Datei (nur mit Kennung `GLW8:HZR3P32:FW=`; Modul GlwOta) |
+| GET | `/ota/info` | Angaben für das Update als JSON: Produkt, Version, Kennung, Server, PIN, Größe der Update-Partition, Zustand (siehe [Modul GlwOta](#modul-glwota--firmware-update-für-andere-projekte)) |
+| GET | `/ota.js` | **ohne Passwort** – Skript für „Auf neue Firmware prüfen“ (Reiter System und Seite `/update`) |
 
 ---
 
@@ -2023,11 +2439,10 @@ Alle Endpunkte liefern JSON. Ist ein Web-Passwort gesetzt, ist HTTP-Basic-Auth m
 - **Verzögert gespeichert:** Änderungen über MQTT und Modbus, nach 10 Sekunden ohne weitere Änderung. Das schont den Flash.
 - **Neustart nötig:** Änderungen an WLAN, Hostname, Web-Passwort, Modbus und OTA lösen automatisch einen Neustart aus.
 - **Gesamtzähler:** Sie liegen getrennt in `/counters.json` und werden alle 24 h sowie vor Neustarts und Updates gespeichert (siehe [Gesamtzähler](#gesamtzähler-über-alle-neustarts)).
-- **Werkseinstellungen** (*System → Werkseinstellungen*): löscht **alle** Einstellungen einschließlich WLAN, aber nicht die Gesamtzähler und nicht das Profil GLW8. Danach startet der Regler im Access-Point-Modus wie beim ersten Start, mit dem Profil Radiatorheizung.
+- **Werkseinstellungen** (*System → Werkseinstellungen* oder Taster IO0 37 s halten): löscht **alle** Einstellungen einschließlich WLAN, aber nicht die Gesamtzähler und nicht das Profil GLW8. Danach startet der Regler im Access-Point-Modus wie beim ersten Start, mit dem Profil Radiatorheizung.
 - **Update von älteren Versionen:**
   - Bestehende Einstellungen bleiben erhalten. Die Raum-Einstellungen aus Version 1.3–1.5 (`roomSource`, `roomTopic`, `roomJsonKey`, `roomExtTimeout`) werden automatisch übernommen.
-  - Wer von Version 1.5 oder älter kommt, hat die Fühler noch gemeinsam an D5. Der Regler erkennt die gespeicherte Zuordnung über Seriennummern und stellt automatisch auf **Gemeinsamer Bus an D5**. Es muss nichts umverdrahtet werden.
-  - Wer von Version 1.6 kommt, behält die Anschlussart **Eigene Pins**.
+  - Einstellungen aus 2.9 und älter (auch aus Version 1): Die Anschlussart wird auf die drei Busse umgesetzt, siehe [Drei Busse](#drei-busse-ab-2100).
 
 ---
 
@@ -2054,7 +2469,9 @@ Heizungsregler_ESP32/
 ├── A135_Firmware_Update.ino     13b Anbindung des Moduls GlwOta
 ├── A140_WLAN.ino                14  WLAN, Access-Point
 ├── A150_Setup_Loop.ino          15  setup(), loop(), Regel-Task
-├── web_ui.h                     Weboberfläche
+├── web_ui.h                     Weboberfläche (Quelle)
+├── web_ui_gz.h                  dieselbe, gzip-komprimiert (ab 2.21.4, erzeugt – nicht von Hand ändern)
+├── tools/web_ui_gz.py           erzeugt web_ui_gz.h aus web_ui.h
 ├── src/GlwOta/GlwOta.h, .cpp    Modul Firmware-Update (wiederverwendbar)
 └── Server/                      PHP-Skript für die Auslieferung auf glw8.at
 ```
@@ -2062,6 +2479,7 @@ Heizungsregler_ESP32/
 **Wie die Arduino IDE die Dateien zusammensetzt:** Jede `.ino`-Datei erscheint als eigener Reiter. Beim Übersetzen hängt die IDE zuerst die Hauptdatei und dann die übrigen `.ino`-Dateien in **alphabetischer** Reihenfolge aneinander und übersetzt das Ganze als ein Programm. Deshalb:
 
 - Die Nummer im Dateinamen ist die Abschnittsnummer mal 10 (8b → `085`). Damit bleibt die Reihenfolge genau die der früheren einteiligen Datei, auch wenn die IDE Groß- und Kleinschreibung unterschiedlich sortiert. Neue Dateien bekommen eine passende Nummer dazwischen.
+- **Die erste Funktion des Programms steht am Ende der Hauptdatei** (`timeValid`). Davor setzt die IDE die Deklarationen aller Funktionen; steht die erste Funktion in einem anderen Reiter, erzeugt die IDE fehlerhaften Code („stray '##' in program“). Diese Funktion also nicht verschieben.
 - **Datentypen und globale Variablen stehen alle in der Hauptdatei.** Eine Variable, die erst in einer späteren Datei angelegt wird, ist in den Dateien davor unbekannt. Funktionen dürfen dagegen in jeder Datei stehen – die IDE meldet sie selbst überall an.
 - Dateien im Unterordner `src/` übersetzt die IDE dagegen **getrennt** als eigene C++-Dateien. Dort liegt das Modul `GlwOta`, das bewusst nichts vom Regler weiß; eingebunden wird es mit `#include "src/GlwOta/GlwOta.h"`.
 
@@ -2087,8 +2505,9 @@ Gemeinsame Daten (Einstellungen `cfg`, Zustand `st`) schützt ein Mutex: Der Reg
 | 4. Globale Objekte | Webserver, MQTT, Modbus, OneWire-Busse, Ticker |
 | 5. Hilfsfunktionen | Zeit, Ereignisprotokoll, Zahlenformate |
 | 6. Konfiguration | Laden und Speichern von `/config.json`, Übernahme geänderter Werte |
-| 7. Mischer | 3-Punkt-Impulse bzw. 0–10 V, Kalibrierung, Zähler für Stellvorgänge, Pumpenlaufzeit und Neustarts, Gesamtzähler in `/counters.json` |
-| 8. Temperaturfühler | eigene Pins oder gemeinsamer Bus, Zuordnung, externe Werte, Zeitüberwachung |
+| 7. Mischer und Zähler | 3-Punkt-Impulse bzw. 0–10 V, Kalibrierung, Handschaltung, Zähler für Stellvorgänge, Pumpenlaufzeit und Neustarts, Wärmemengenzählung, Gesamtzähler in `/counters.json` |
+| 8. Temperaturfühler | drei 1-Wire-Busse, Zuordnung über Seriennummer, externe Werte, Zeitüberwachung |
+| 8b. Bluetooth | Empfang (passiv) von RuuviTag und Shelly BLU H&T (BTHome v2, auch verschlüsselt), Zuordnung über die MAC-Adresse, Auswahl der Quelle je Fühler (`updateRole`) |
 | 9. Regelung | Heizkurve (Formel oder Stützpunkt-Spline `curvePoints()`), Kühlkurve, Taupunkt, Absenkung, Heiz- und Kühlgrenze, Raumeinfluss, Rücklaufbegrenzung, PI-Regler (beim Kühlen umgekehrt), Pumpe, Schutzfunktionen |
 | 9b. Relais K4 | Zusatzfunktion: Wärmeanforderung, Heizen/Kühlen, Sammelstörmeldung, Zirkulation, Entfeuchter, frei schaltbar; Mindestlaufzeit/-pause, Zähler |
 | 10. Status | alle Werte als JSON (für Web, MQTT und CSV) |
@@ -2103,25 +2522,41 @@ Gemeinsame Daten (Einstellungen `cfg`, Zustand `st`) schützt ein Mutex: Der Reg
 
 ### Stromlaufplan
 
-Für Version 2 folgt ein eigener Stromlaufplan für die ESP32-Relaisplatine. Bis dahin gelten die Pinbelegung und die Hinweise unter [Hardware und Verdrahtung](#hardware-und-verdrahtung).
+Die Datei `Stromlaufplan_V2.svg` (im Sketch-Ordner, im Browser zu öffnen und verlustfrei zu vergrößern) zeigt links den Steuerstromkreis mit der ESP32-Relaisplatine (A1), den Fühlern B1–B7 an den drei 1-Wire-Bussen IO4/IO13/IO14 (Beispielbelegung) mit je einem Pull-up R1–R3 am Regler, den optionalen Bluetooth-Sensoren, dem 0–10-V-Wandler A3 und dem RS485-Modul A4, rechts den Laststromkreis 230 V~ mit den Strompfaden 1 (Netzteil T1), 2/3 (K2 ZU und K1 AUF als Wechsler in Reihe – K1 über NC von K2 versorgt –, Mischer M1), 4 (K3, STB F2, Pumpe M2) und 5 (K4 potenzialfrei an Klemmleiste X1). Pinbelegung und Hinweise siehe [Hardware und Verdrahtung](#hardware-und-verdrahtung).
+
+### Dokumentation als PDF
+
+Im Ordner `Doku/` liegen:
+
+| Datei | Inhalt |
+|---|---|
+| `GLW8_Heizungsregler_V2_Benutzerhandbuch_<Version>.pdf` | **Benutzerhandbuch** für die Bedienung: Kapitel je Reiter mit Bildern, Schritt-für-Schritt-Anleitungen, Relais K4, Funk-Thermometer, Störungstabelle – ohne Technik |
+| `GLW8_Heizungsregler_V2_Dokumentation_<Version>.pdf` | diese README als Druckfassung mit Deckblatt und Inhaltsverzeichnis, dazu Anhang A (alle Bildschirmansichten), Anhang B (Stromlaufplan) und Anhang C (Beispiele der CSV-Dateien) |
+| `Screenshots/` | alle Bildschirmansichten als PNG (Desktop 1280 px, Smartphone 390 px, Beispielwerte) |
 
 ### `web_ui.h` – die Weboberfläche
 
-Die komplette Bedienseite (HTML, CSS und JavaScript) steht als ein einziger Text im Flash (`PROGMEM`) und wird von `/` ausgeliefert. Sie lädt nichts aus dem Internet. Die Datei ist in drei Teile gegliedert:
+Die komplette Bedienseite (HTML, CSS und JavaScript) steht als ein einziger Text in `web_ui.h` und wird von `/` ausgeliefert. Sie lädt nichts aus dem Internet.
+
+**Komprimiert (ab 2.21.4):** Der Regler sendet die Seite gzip-komprimiert aus `web_ui_gz.h` (rund 90 statt 280 KB, `Content-Encoding: gzip`; jeder übliche Browser entpackt das selbst). Das lädt schneller, hält die Hauptschleife kürzer auf und spart rund 190 KB Flash – die unkomprimierte Fassung wird nicht mehr in die Firmware übernommen. **Nach jeder Änderung an `web_ui.h`** `python3 tools/web_ui_gz.py` ausführen (Python 3, keine Zusatzpakete); passt `web_ui_gz.h` nicht mehr zu `web_ui.h`, bricht das Übersetzen mit „web_ui_gz.h passt nicht zu web_ui.h“ ab. Die Datei ist in drei Teile gegliedert:
 
 - **Gestaltung (CSS):** Alle Farben stehen als Variablen am Anfang (`--acc` Orange, `--blue` Blau, `--paper` Hintergrund …). Wer die Farben ändern will, ändert nur diese Zeilen; der Dunkelmodus hat einen eigenen Block direkt darunter. Danach folgen, jeweils kommentiert, Kopfzeile, Reiter, Karten, Anlagenschema mit Animation, Smartphone-Raster, Formulare, Tabellen und die Anpassungen für schmale Bildschirme.
 - **Seitenaufbau (HTML):** Kopfzeile, Reiterleiste und je Reiter ein Abschnitt. Beim Anlagenschema ist erklärt, wie das Koordinatensystem (520 × 300) und die Leitungspfade aufgebaut sind und wie die Werte über `data-v` an die richtige Stelle kommen.
 - **Programmlogik (JavaScript):** Eine Übersicht am Anfang beschreibt den Ablauf. Die Einstellungsformulare entstehen aus einer Tabelle (`F`): Für ein neues Eingabefeld genügt eine Zeile dort, sofern die Firmware den gleichnamigen JSON-Wert kennt. Danach folgen Wochenprogramm, Profile, Live-Anzeige (`poll()` alle 2 s, Nur-Anzeige 5 s, pausiert bei unsichtbarer Seite), Fühler, Heizkurvengrafik, Verlauf und CSV-Download.
 
-Da die Kommentare in `web_ui.h` Teil der Seite sind, werden sie mit an den Browser geschickt. Die Seite ist dadurch rund 78 KB groß; sie wird direkt aus dem Flash gesendet und belegt keinen Arbeitsspeicher.
+Da die Kommentare in `web_ui.h` Teil der Seite sind, werden sie mit an den Browser geschickt. Die Seite ist dadurch rund 190 KB groß (Stand 2.6); sie wird direkt aus dem Flash gesendet, belegt keinen Arbeitsspeicher und wird vom Browser zwischengespeichert – nach dem ersten Aufruf lädt er sie nur nach einem Firmware-Update neu. Die Update-Seite und das Skript `/ota.js` stammen nicht aus `web_ui.h`, sondern aus dem Modul GlwOta.
 
-### Speicherbedarf (Version 2.0.0, ESP32)
+### Speicherbedarf (ESP32, Stand 2.6)
 
 | | Belegung |
 |---|---|
-| Programm im Flash | mit Partition *Minimal SPIFFS* stehen je Programmbereich 1,9 MB zur Verfügung – genug Reserve für Updates über WLAN; aktuelle Größe und freier Platz in der Karte *Gerät und Netzwerk* |
-| Arbeitsspeicher | rund 320 KB; im Betrieb typisch 150–220 KB frei (Version 1: 10–20 KB) |
-| Dateisystem (LittleFS, 190 KB) | `/config.json`, `/counters.json`, `/profile_glw8.json`, `/hist7.bin` – zusammen wenige KB |
+| Programm im Flash | mit Partition *Minimal SPIFFS* stehen je Programmbereich 1,9 MB zur Verfügung – genug Reserve für Updates über WLAN, auch mit Bluetooth (zusätzlich etwa 250–300 KB). Aktuelle Größe und freier Platz in der Karte *Gerät und Netzwerk* |
+| CPU (ab 2.17.6) | Reiter *System*, Karte *Gerät und Netzwerk*, Zeile **CPU-Auslastung Kern 1**: Anteil der Rechenzeit von Regel-Task und Hauptschleife (beide auf Kern 1) je 10 s, dazu der längste Durchlauf und die Spitze seit dem Start. Gemessen wird die Zeit je Durchlauf ohne die Pausen; Wartezeiten darin (Mutex, Senden an einen langsamen Browser) zählen mit, die Werte sind also eine obere Grenze. Kern 0 (WLAN, Bluetooth) wird nicht gemessen – das ESP32-Arduino-Paket hat keine Laufzeitstatistik der Tasks eingeschaltet. Im Betrieb typisch wenige Prozent; dauerhaft über 50 % deutet auf ein Problem hin (z. B. viele gleichzeitige Browser) |
+| Stapel (ab 2.18.1) | Regel-Task und Hauptschleife je 12 KB (bis 2.18.0 je 8 KB); kleinster freier Platz seit dem Start im Reiter *System* (*Stapelreserve*) |
+| Arbeitsspeicher | rund 320 KB; im Betrieb typisch 150–220 KB frei, mit laufendem Bluetooth-Empfang 40–50 KB weniger (Version 1: 10–20 KB) |
+| Dateisystem (LittleFS, 190 KB) | `/config.json`, `/counters.json`, `/profile_glw8.json`, `/hist7.bin`, `/hist24.bin` – zusammen rund 20 KB |
+
+Die Werte sind Erfahrungswerte bzw. Schätzungen; gemessen wird im Betrieb (Karte *Gerät und Netzwerk* und Zeile *Freier Speicher* im Reiter System).
 
 ## Modul GlwOta – Firmware-Update für andere Projekte
 
@@ -2188,6 +2623,56 @@ Die vollständige Beschreibung aller Einstellungen, Adressen und Rückmeldungen 
 
 | Version | Änderungen |
 |---|---|
+| 2.21.4 | **Bedienseite gzip-komprimiert** (`web_ui_gz.h`, erzeugt mit `tools/web_ui_gz.py`): 90 statt 280 KB, rund 190 KB Flash frei. **Webantworten an langsame Browser** (JSON, Verlauf, Ereignisprotokoll) nach 15 s abgebrochen – Anlass: „Hauptschleife hing länger als 3 min“; die Meldung nennt jetzt die letzte Tätigkeit und den freien Speicher |
+| 2.21.3 | **RTC-Watchdog** (60 s, bedient vom Regel-Task) setzt den Chip zurück, wenn das ganze System steht (Anlass: Stillstand nach ~13 h ohne Watchdog-Neustart); Absturz-Diagnose nennt zusätzlich den Schritt des Regel-Tasks; Speicherverlauf alle 2 h im Protokoll |
+| 2.21.2 | Energieliste: zweite Spalte **System-AZ** = (Wärme Regelkreis + Warmwasser + Kälte Regelkreis) ÷ Strom Wärmepumpe, Kästchen zum Ein-/Ausblenden, im CSV |
+| 2.21.1 | **Weniger Speicherlast:** Bluetooth mit Doppelfilter im Funkteil, Suchlauf alle 20 s neu (vorher jedes Paket aller Geräte in der Nähe, Hunderte je Sekunde – Abstürze in `nimble_host` bei knappem Speicher); Verlauf wird in kleinen Stücken ohne großen Speicherblock gesendet (bis 2.21.0 Kopie bis 10 KB am Stück) |
+| 2.21.0 | **Schutz für Modbus TCP:** erlaubte IP-Adressen bzw. Netze (`mbAllow`, z. B. `192.168.1.0/24`) und *nur lesen* (`mbReadOnly`, Schreibbefehle mit Ausnahme 1 abgewiesen); wirkt sofort, Einträge im Protokoll |
+| 2.20.4 | **Zustand Heizkreis** (Heizen / Warmwasser / Kühlen / Stillstand) als MQTT `…/heat_source_state`, JSON `srcStateTxt`, Home-Assistant-Sensor *Heizkreis Zustand* und Modbus Input-Register 46; **Warmwasser-Ventil** als MQTT `…/ww_valve`, Home-Assistant-Binärsensor und Modbus Statusbits 2 Bit 15. Verlauf: **Minimum und Maximum** immer auch für die fett angezeigte (dem Zeiger nächste) Kurve, auch Mischerstellung |
+| 2.20.3 | **Verlauf 24 h und 7 Tage wird stündlich gespeichert** (zusammen mit Zählern und Energieliste, ohne Protokolleintrag) – nach einem Absturz fehlt höchstens die letzte Stunde; bisher nur bei geordnetem Neustart, Update, Taste oder Befehl |
+| 2.20.2 | Bluetooth: Der Regel-Task forderte im Sperrbereich der Bluetooth-Tabelle (Interrupts aus) für jeden Fühler und jedes gespeicherte Gerät Speicher an (Adresse als Text, bis ~50-mal je Sekunde) – jetzt Vergleich als Bytes; weniger Zerstückelung. **Prüfung des Arbeitsspeichers** alle 5 s mit geordnetem Neustart bei Beschädigung; Grund in der Neustartliste. Anlass: Absturz im Leerlauf-Task (IDLE0) beim Watchdog – laut .elf-Auswertung beim Durchlaufen der Watchdog-Liste, also beschädigter Speicher |
+| 2.20.1 | **Speichermangel** (Abstürze mit unter 30 KB frei): Stapel wieder kleiner (Regel-Task 8 KB, Hauptschleife 10 KB), Speicher des klassischen Bluetooth wird vor dem BLE-Start freigegeben; neue Zeile *Speicher beim Start* (nach dem Start, vor/nach Bluetooth) im Reiter System und im Protokoll |
+| 2.20.0 | **Absturz-Diagnose:** freier Speicher und Tätigkeit der Hauptschleife vor dem Absturz (RTC-Speicher) bei *Letzter Absturz*. **Neustartliste** der letzten 20 Starts mit Zeit, Grund und Firmware (`/boots.json`, Reiter System). **Daten löschen** (alles außer Einstellungen) und **Dateisystem formatieren** im Reiter System. **Eingang Warmwasser-Ventil** an GPIO 27 (`wwValve`): bestimmt allein die Warmwasserbereitung. Speichern der Einstellungen braucht weniger Speicher (nur die geschickten Felder werden verglichen) |
+| 2.19.3 | Karte *Energie*: Alter des letzten Zählerstands („vor … gemeldet“, `wpMeterAge`). **Energieliste genauer:** kleine Beträge werden genau gesammelt und ab 20 Wh gebucht (vorher Rundungsverluste bei großen Wochen-/Monatssummen); Gesamtzähler und Energieliste werden **stündlich** statt alle 6 h gespeichert – nach Absturz oder Stromausfall fehlt höchstens 1 h |
+| 2.19.2 | **Stromzähler der Wärmepumpe nur noch als Ersatz:** Maßgeblich ist wieder der Strom aus der Leistung; der Zähler füllt nur Abschnitte, in denen die Leistung fehlte (Zähler − Leistung). Neue **Kontrolle** in der Karte *Energie*: Strom aus Leistung und Zähler von heute im Vergleich (± %), dazu der Ersatz |
+| 2.19.1 | **Task-Watchdog behoben** („regelung (CPU 1) did not reset the watchdog“): Webantworten (JSON, Verlauf, Ereignisprotokoll, CSV) und MQTT-Nachrichten werden ohne die gemeinsame Sperre gesendet (`Unguard`, `wsSend`/`wsContent`/`mqPub`); der Verlauf wird vorher kopiert, das Protokoll unter seiner Sperre kopiert; Passwortabfrage vor der Sperre. Der Regel-Task wartet höchstens 5 s auf die Sperre, sonst fällt ein Durchlauf aus und das Protokoll nennt den Halter |
+| 2.19.0 | **Stromzähler der Wärmepumpe** per MQTT (Kasten *Stromzähler Wärmepumpe*: Topic, JSON-Feld, Wh/kWh; oder `…/set/wpEnergy`): Die Zunahme des Zählerstands ersetzt in Energieliste und Arbeitszahl den aus der Leistung errechneten Strom und wird nach der Leistung auf Heizen, Warmwasser und Kühlen verteilt; Basis beim ersten Wert und nach über 6 h Pause, Plausibilitätsprüfung; Herkunft in der Karte *Energie* |
+| 2.18.3 | **Absturz behoben** „assert failed: udp_new_ip_type … Required to lock TCPIP core functionality“ (Task loopTask, gefunden mit der Absturzdiagnose aus 2.18.1): Fehler im ESP32-Paket 3.3.x beim DNS nach WLAN-Neuverbinden, ausgelöst durch eine offene NTP-Namensauflösung. Der Regler löst die NTP-Server jetzt selbst auf (beim Verbinden, nach Änderung, alle 12 h, ohne DNS jede Minute) und gibt dem Zeitdienst nur IP-Adressen; Zeitquelle zeigt die Adresse |
+| 2.18.2 | Kompilierfehler in der Arduino IDE behoben („'BleTag' has not been declared“ u. a.): Die Stapelgröße der Hauptschleife wird nicht mehr mit dem Makro `SET_LOOP_TASK_STACK_SIZE` im Hauptteil gesetzt, sondern mit der ausgeschriebenen Funktion `getArduinoLoopTaskStackSize()` in A150 – die IDE hatte die Funktionsprototypen vor das Makro und damit vor die Typen gesetzt |
+| 2.18.1 | **Absturzursache aus dem Core-Dump:** Ursache, Programmadresse, Task und Backtrace unter *System → Letzter Absturz* und im Ereignisprotokoll (zum Auswerten mit der `.elf`-Datei). **Stapelreserve** von Regel-Task und Hauptschleife im Reiter *System*, Warnung unter 1 000 Byte; beide Stapel 12 statt 8 KB. Verlauf: bei höchstens 3 eingeschalteten Kurven **Minimum und Maximum** je Kurve markiert |
+| 2.18.0 | **Fühlerkorrektur über 3 Punkte** für nicht lineare Fühler: je Fühler wahlweise *ein Wert* (wie bisher) oder *3 Punkte* mit Messwert und Korrektur (ab Werk 20, 35, 50 °C), dazwischen geradlinig, außerhalb der äußere Wert; Rohwert zum Einmessen im Reiter *Fühler* (`raw` in `/api/sensors`); Einstellungen `calMode`, `calT1…3`, `calK1…3` je Fühler |
+| 2.17.6 | **CPU-Auslastung** Kern 1 im Reiter System. Übersicht: **Verschiebung Heizkurve** −5 … +5 K. **Kälte im Heizkreis nur in den Betriebsarten Kühlen und Heizen/Kühlen.** Verlauf: **Doppelklick** auf einen Legendennamen zeigt nur diese Kurve (nochmals: zurück), in der Werteanzeige ist die **nächste Kurve fett**, Balken **Stellvorgänge** (AUF/ZU) bei der Mischerstellung und **vorrangige Energie** (Heizen, Warmwasser, Kühlen, Stillstand) bei der Leistung; 24-h-Verlauf Version 7, Wochenverlauf Format 10. **Arbeitszahl Kühlen** in der Energieliste (Strom beim Kühlen getrennt gezählt, `/energy.bin` 8 Werte) |
+| 2.17.5 | **Warmwasser im Verlauf:** pink im Betriebsart-Streifen und als Kurve **Leistung Warmwasser** (ab Werk sichtbar; neue Kurven späterer Versionen erscheinen mit ihrer Werkseinstellung, auch wenn die Auswahl schon gemerkt ist); 24-h-Verlauf Version 6, Wochenverlauf Format 9. **Einheit der Wärmeenergie** wählbar (kWh, Wh, MWh, J, kJ, MJ, GJ, cal, kcal, Mcal, BTU, kBTU, therm) für alle Anzeigen |
+| 2.17.4 | **Verlauf mit Betriebsart:** farbiger Streifen unter Mischer und Pumpe (blass = Heizkreis ruht), Farbzuordnung darunter, Betriebsart in der Werteanzeige und in der CSV; 24-h-Verlauf Version 5, Wochenverlauf Format 8 (ältere Dateien werden übernommen) |
+| 2.17.3 | **Heizkreis läuft, wenn …** wahlweise nach der Leistung der Wärmepumpe: unter *Wärmepumpe steht unter W* (Werkseinstellung 80 W) ist die Leistung Heizkreis 0. **Taster IO0 3× kurz in 2 s** speichert Verlauf und Energieliste (LED 5× schnell) |
+| 2.17.2 | **Verlauf mit Temperatur Wärmequelle** (Kurve „Wärmequelle“, CSV-Spalte, 24-h-Verlauf Version 4, Wochenverlauf Format 7 – ältere Dateien werden übernommen). Anlagenschema: Wert der Wärmequelle höher gesetzt, kollidiert nicht mehr mit Heizung VL |
+| 2.17.1 | **Verlauf mit Leistung WP** (gestrichelt in der Leistungsgrafik, CSV-Spalte, 24-h-Verlauf Version 3, Wochenverlauf Format 6 – ältere Dateien werden übernommen). **Kurven ab Werk:** Regelkreis VL und Soll, Außen, Raum, Leistung Heizkreis und Leistung WP; die Auswahl aller Kurven merkt sich der Browser. **Volumenstrom Warmwasser** (`wwLpm`) für die Warmwasser-Wärme |
+| 2.17.0 | **Warmwasser-Erkennung im Heizkreis** am Leistungsverlauf (kurz leicht negativ beim Umschalten, dann starker Anstieg, am Ende schneller Abfall) und/oder über der Maximalspreizung; Energie im Verdacht wird vorgemerkt und danach zugeordnet. **Art der Wärmequelle** (Name im Anlagenschema, Arbeitszahl nur bei Wärmepumpe). Energieliste mit Spalte **Warmwasser** und **Arbeitszahl gesamt / Heizen / Warmwasser** (Strom während der Warmwasserbereitung getrennt); `/energy.bin` 7 Werte je Eintrag |
+| 2.16.2 | **Werteanzeige in Verlauf und Heizkurve** (Maus oder Finger) bleibt immer ganz sichtbar: waagrecht innerhalb der Grafik, senkrecht auf Höhe des Zeigers, aber innerhalb der Grafik und des sichtbaren Fensterausschnitts (unter der Reiterleiste); beim Scrollen wandert sie mit |
+| 2.16.1 | Anlagenschema: **Spreizung des Heizkreises** (Heizung Vorlauf − Heizung Rücklauf) unter Heizung RL, wie beim Regelkreis-Rücklauf |
+| 2.16.0 | **„Kessel“ heißt überall „Puffer“** (Fühler, Anlagenschema, Verlauf, K4, Home Assistant *Puffertemperatur*, Doku; interne Schlüssel `boil`/`boilerTemp` bleiben). K4-Funktion 7 heißt **Puffer-Ladepumpe** (MQTT-Name `buffer_pump`, `boiler_pump` wird weiter angenommen). Achter, optionaler Fühler **Wärmequelle** (Bus / MQTT / Bluetooth wie alle Fühler; MQTT `…/heat_source_temp`, `…/set/sourceTemp`, Home Assistant *Temperatur Wärmequelle*, Modbus Holding 34 / Input 45 / Statusbit 14); die Puffer-Ladepumpe nimmt die Temperatur von ihm, ersatzweise von Heizung Vorlauf. Anzeige im Anlagenschema über dem Kasten Wärmequelle und als Smartphone-Kachel |
+| 2.15.0 | **K4-Funktion Kessel-Heizungspumpe:** fördert die Wärme vom beheizten Ofen zum Kessel (Heizung Vorlauf ≥ „Ofen beheizt ab“ und ≥ Kessel + Einschaltdifferenz, aus unter der Ausschaltdifferenz; Ofen-Übertemperatur schaltet immer ein). **Handschaltung K4** Ein / Aus / Automatik in der Übersicht, auch über MQTT, Modbus und REST |
+| 2.14.0 | **Energieliste** im Reiter Verlauf: Wärme und Kälte von Regelkreis und Heizkreis sowie Strom der Wärmepumpe je **Tag (8)**, **Woche (9)** und **Monat (13)**, mit Summe, Arbeitszahl, Balken und CSV-Download; gespeichert in `/energy.bin`, abrufbar über `GET /api/energy` |
+| 2.13.0 | **Vorlauf und Rücklauf immer mit Bezug:** Fühler, Felder, Anlagenschema, Verlauf, Statusanzeigen, Ereignisprotokoll, Home-Assistant-Namen, Heizkurven-CSV und Hilfe nennen jetzt *Regelkreis Vorlauf / Rücklauf* (bzw. *Heizung Vorlauf / Rücklauf*). **Leistung der Wärmepumpe** per MQTT (eigenes Topic mit JSON-Feld und Einheit W/kW oder `…/set/wpPower`) im Anlagenschema neben der Außentemperatur, nur Anzeige |
+| 2.12.1 | **Alle Einstellkarten übersichtlicher:** beschriftete Kästen je Themengruppe (Regler, K4, Netzwerk, Modbus RTU/OTA, Heizkurve & Grenzen, Stützpunkte nebeneinander, Kühlen, Zeitprogramm), kurze Feldnamen im Kasten, spaltenweise Anordnung ohne Lücken, nicht zutreffende Kästen ausgeblendet (K4-Funktion, tägliches Absenkfenster nur bei dieser Programmart), Karten ohne Kästen begrenzt breit |
+| 2.12.0 | **Volumenströme von MQTT oder Modbus** (je Kreis: eigenes Topic mit Einheit l/min, l/h oder m³/h, `…/set/flowRate` / `srcFlowRate`, Holding-Register 30/31; nach 5 min ohne Wert gilt der eingetragene Wert). **Wärmeanforderung K4** mit zusätzlichen Bedingungen: *Anfordern ab Vorlauf-Soll* und *Nur wenn Kessel kälter als Soll + K* (Holding-Register 32/33) |
+| 2.11.1 | Leistung von Regelkreis und Heizkreis wahlweise im **Anlagenschema** (zwei Schalter im Reiter *Regler*, ab Werk ein; Regelkreis unter dem Vorlauf-Soll, Heizkreis bei der Wärmequelle; Smartphone-Kachel) |
+| 2.11.0 | **NTP-Server einstellbar** (z. B. der Router), zusätzlich fest time.google.com; **Uhrzeit vom Browser**, wenn NTP fehlt (Weboberfläche stellt die Uhr beim Öffnen, NTP hat Vorrang; abschaltbar); **feste IP-Adresse** statt DHCP (Adresse, Maske, Gateway, 2 DNS). Anzeige der Zeitquelle in Übersicht und *Gerät und Netzwerk*. Befehl `setTime` |
+| 2.10.2 | Reiter *Fühler*, Liste *Bluetooth-Sensoren* bleibt ruhig: Sensoren stehen in der Reihenfolge des Erkennens (neue unten, im Browser gemerkt) statt nach Empfangsstärke sortiert; beim Auffrischen ändern sich nur die Messwerte, die gewählte Zuordnung je Sensor bleibt stehen |
+| 2.10.1 | Reiter *Fühler*, Karte *Herkunft und Korrektur je Fühler* übersichtlicher: ein eigener Kasten je Fühler (auf breiten Bildschirmen zwei nebeneinander) mit aktuellem Wert und Quelle in der Überschrift (rot bei Störung), Beschriftungen ohne Wiederholung des Fühlernamens, kürzere Hinweise; gemeinsame Einstellungen im Kasten *Allgemein*; am Handy Beschriftung über dem Feld |
+| 2.10.0 | **Fühler an drei 1-Wire-Bussen** (GPIO 4, 13, 14) statt einzelner Pins: je Fühler Herkunft (Bus, MQTT/Modbus, Bluetooth, auch mit Ersatz), Bus und Seriennummer; Liste aller DS18B20 an den Bussen mit Zuordnung; umgesteckte Fühler werden an der Seriennummer erkannt. Bluetooth für jeden Fühler wählbar. Die Anschlussart „eigene Pins / gemeinsamer Bus / zwei Busse“ entfällt und wird beim Update übernommen; GPIO 27, 22, 21 und 5 sind frei. Stromlaufplan neu |
+| 2.9.2 | Offener Access-Point über den Taster IO0 (13 s): Zugriffe über diesen Access-Point brauchen 15 min lang auch kein Web-Passwort (Weboberfläche, REST-API, Firmware-Update); im Heimnetz gilt es weiter. Anzeige mit Restzeit in der Übersicht |
+| 2.9.1 | Hinweis in Hilfe und Doku: Der Pull-up-Widerstand der DS18B20 gehört bei längeren Kabeln (z. B. 7 m UTP) immer an den Regler (ESP32), nicht an den Sensor. Programm unverändert |
+| 2.9.0 | **Heizkreis:** neue Einstellung **Maximalspreizung** (darüber wird nicht gezählt, z. B. Warmwasserbereitung; Anzeige „über Maximalspreizung“); **Kälte** im Heizkreis wird unabhängig von der Betriebsart gezählt (Kessel/Puffer wird gekühlt). **Leistungen im Verlauf** (Regelkreis und Heizkreis, mittlere Leistung je Punkt, eigene Grafik, CSV; Wochenverlauf Format 5, 24-h-Verlauf Version 2). **Status-LED** mit Blinkmustern (Einstellung aus / Status / nur Störungen) und **Taster IO0**: kurz = WLAN-Signal, 13 s = Access-Point ohne Passwort (15 min), 37 s = Werkseinstellungen |
+| 2.8.2 | **24-h-Verlauf im Flash** (`/hist24.bin`, ca. 5,8 KB): gespeichert mit dem Knopf *Verlauf im Regler speichern* (vorher „Wochenverlauf …“, speichert jetzt 24 h und 7 Tage) und automatisch vor jedem geplanten Neustart (Update, Einstellungen, Neustart, Werkseinstellungen) – dann auch der Wochenverlauf. Nach dem Start wird der Stand geladen und mit der Internet-Uhrzeit angeschlossen (Lücke für die Zeit dazwischen). Anzeige des Speicherzeitpunkts auch in der 24-h-Ansicht |
+| 2.8.1 | **Firmware-Update über den Browser robuster:** Der Bluetooth-Empfang ruht während der Übertragung (WLAN und Bluetooth teilen sich beim ESP32 die Funkzeit – bei laufender Suche kann die Datei so stockend ankommen, dass der Webserver des Reglers nach 5 s ohne Daten abbricht: „Übertragung an das Gerät abgebrochen“). Bricht die Übertragung trotzdem ab, nennt die Meldung den Fortschritt, die Meldung des Reglers und andere Wege (Arduino IDE, USB). Modul GlwOta 1.1.0 |
+| 2.8.0 | **Heizkreis zwischen Wärmequelle und Kessel:** zwei neue, optionale Fühler **Heizung Vorlauf** (GPIO 21) und **Heizung Rücklauf** (GPIO 5), auch über MQTT (`…/set/heatFlowTemp`, `…/set/heatReturnTemp`) und Modbus (Holding 28/29); neues Feld **Volumenstrom Heizkreis l/min** mit Mindestspreizung und eigener Wärme-/Kältemengenzählung (Leistung, heute, gestern, gesamt); das bisherige Feld heißt jetzt **Volumenstrom Regelkreis l/min**. Anlagenschema mit Wärmequelle, zwei Kacheln am Smartphone, Kurven im Verlauf (Wochenverlauf Format 4, CSV), MQTT `…/heat_flow`, `…/heat_return`, `…/power`, `…/heat_source_power`, Home-Assistant-Sensoren für beide Kreise, Modbus Input 41–44, Statusbits 2 Bit 10–12. Neue **Anschlussart „zwei Busse“**: Vorlauf + Rücklauf an GPIO 4, Heizung Vorlauf + Rücklauf an GPIO 21, Zuordnung je Bus über die Seriennummer |
+| 2.7.3 | Verdrahtung des Mischers wie ausgeführt dokumentiert: Phase über COM von K2 (ZU), K1 (AUF) über NC von K2 versorgt (ZU hat Vorrang); Hilfe *Anschlüsse*, Stromlaufplan, Handbuch und Dokumentation angepasst. Regelung unverändert |
+| 2.7.2 | Verlauf: Legende mit deutlich sichtbaren Farbbalken (28 × 6 px, gestrichelt beim Vorlauf-Soll) statt dünner Striche; ausgeblendete Kurven blass |
+| 2.7.1 | *Min. Impulslänge* bis 13 000 ms einstellbar (bisher höchstens 5000 ms) |
+| 2.7.0 | **Fünfter Fühler „Kessel“** (optional): DS18B20 an GPIO 22 bzw. am gemeinsamen Bus, oder über MQTT (`…/set/boilerTemp`, eigenes Topic) bzw. Modbus (Holding-Register 27); Anzeige im Anlagenschema und Smartphone-Raster, Zeile im Reiter Fühler, Kurve im Verlauf (auch Wochenverlauf und CSV), MQTT `…/boiler`, Home-Assistant-Sensor *Kesseltemperatur*, Modbus Input-Register 40; Fehler zählt für *Störung* und die Sammelstörmeldung K4. Wochenverlauf im Format 3 (ältere Dateien werden übernommen). Noch ohne Einfluss auf die Regelung |
+| 2.6.2 | Dokumentation: Reiter **Hilfe** auf dem aktuellen Stand (Reiter-Übersicht mit Bluetooth, K4, Wärmemenge, Stützpunkt-Markierung; Firmware-Update mit Kennungsprüfung; Einstellungen sichern); README ergänzt (Bauteile, Reiter, Raumfeuchte vom Bluetooth-Sensor, REST-API mit Wärmemenge, K4 und `/ota/info`, Abschnitt 8b, Speicherbedarf); Übersicht in der Hauptdatei. Keine Änderung an der Regelung |
+| 2.6.1 | Übersetzungsfehler in der Arduino IDE behoben („stray '##' in program“, „'String' does not name a type“ in `A050_Hilfsfunktionen.ino`): Die IDE setzt die Funktions-Deklarationen vor die erste Funktion des Programms – stand diese in einem anderen Reiter als der Hauptdatei, entstand fehlerhafter Code. Die erste Funktion (`timeValid`) steht jetzt am Ende der Hauptdatei |
 | 2.6.0 | **Shelly BLU H&T (SBHT-003C) als Bluetooth-Sensor** für Außen und Raum, neben dem RuuviTag: Format BTHome v2, auch **verschlüsselt** (Schlüssel je Fühler, wie ein Passwort behandelt; geprüft mit dem Beispiel von bthome.io); Temperatur, Feuchte (auch Raumfeuchte für Taupunktschutz und Entfeuchter), Batterie in %; Liste der Bluetooth-Sensoren mit Art und Schlüsselzustand; Bluetooth-Empfangsfenster 80 statt 40 ms je 160 ms. Auch andere BTHome-v2-Thermometer werden erkannt |
 | 2.5.0 | **Relais K4 mit wählbarer Funktion:** Wärmeanforderung an Kessel/Wärmepumpe (Werkseinstellung), Umschaltung Heizen/Kühlen, Sammelstörmeldung im Ruhestromprinzip, Zirkulationspumpe mit Zeitfenstern und Takt, Entfeuchter beim Kühlen, frei schaltbar; Mindestlaufzeit und Mindestpause, Ausgang umkehrbar; Karte im Reiter Regler, Kennzeichen in der Übersicht, Zeile im System, Zähler (seit Neustart und gesamt); MQTT `…/k4`, Home-Assistant-Entitäten, Modbus-Register 25/26 und 35–39; Abschnitt im Reiter Hilfe. Zuvor blieb K4 immer aus |
 | 2.4.0 | **Quelltext auf mehrere Dateien verteilt** (Reiter je Abschnitt, siehe [Aufbau des Quelltexts](#aufbau-des-quelltexts)). **Firmware-Update als eigenes, wiederverwendbares Modul GlwOta** (auch als Arduino-Bibliothek `GlwOta.zip`): Update-Seite mit Dateiprüfung (Version wird vor dem Hochladen angezeigt, ältere Version mit Warnhinweis), Fortschrittsbalken und automatischem Neuladen; Regler nimmt über den Browser nur Dateien mit der Kennung `GLW8:HZR3P32:FW=` an; „Auf neue Firmware prüfen“ jetzt auch auf der Seite `/update`; während eines Browser-Updates ruht die Regelung wie beim Update aus der Arduino IDE (Mischer angehalten, Daten gesichert); Browser-Updates werden sofort mit Uhrzeit gezählt; Fehlermeldungen beim Update im Klartext. **Heizkurvengrafik:** Stützpunkte P1 … P4 markiert (Ring, Name, Lotlinie zur Außentemperatur), Werteanzeige springt auf den Stützpunkt |
